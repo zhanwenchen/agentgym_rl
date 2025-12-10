@@ -1,47 +1,30 @@
-# Feature: Add Memory to Agent Training
+# Add Retrieval-Based Memory for Agent Training
 
-## Proposal
+## Motivation
 
-Add retrieval-based memory: store past experiences and retrieve similar ones as few-shot examples before generation.
+Currently, agents have no mechanism to recall past experiences during rollout. Each episode starts fresh with no memory of what worked before in similar situations.
+
+## Proposed Solution
+
+Add a memory bank that stores past `(observation, action, reward)` tuples. Before generating an action, retrieve similar past experiences and prepend them as few-shot examples.
 
 ```
-Memory Bank: [(observation, action, reward), ...]
-                    ↓
-current_obs → retrieve top-k similar
-                    ↓
-[retrieved examples] + current_obs → LLM.generate() → action
+current_obs → retrieve similar experiences → prepend to prompt → generate action
 ```
 
-**Why this approach:**
-- No architecture changes to actor/critic
-- PPO/GRPO work unchanged
-- vLLM generation unchanged
-- Actual "memory" (episodic recall of past experiences)
+## Benefits
 
-## Implementation
+- Enables learning from past successes without architecture changes
+- Compatible with existing PPO/GRPO training
+- Lightweight: uses small encoder (~22M params) separate from main LLM
 
-1. Add `verl/utils/memory/memory_bank.py`:
-   - Store `(obs_embedding, obs_text, action, reward)`
-   - FAISS index for fast retrieval
-   - Use sentence-transformers for encoding (~22M params)
+## Implementation Sketch
 
-2. Modify `RolloutHandler.get_generation_prompt()`:
-   - Before generation, retrieve k similar past observations
-   - Prepend as few-shot examples
-
-3. After each step, store experience in memory bank
-
-## Config
-
-```yaml
-memory:
-  enabled: true
-  k: 3  # retrieve top-3 similar experiences
-  min_reward: 0.5  # only store successful experiences
-  encoder: "sentence-transformers/all-MiniLM-L6-v2"
-```
+1. New `MemoryBank` class with FAISS index for retrieval
+2. Hook into `RolloutHandler.get_generation_prompt()` to prepend retrieved examples
+3. Store experiences after each environment step
 
 ## Open Questions
 
-1. Store all experiences or only successful ones (reward > threshold)?
-2. Task-specific retrieval or cross-task?
+- Store all experiences or only successful ones?
+- Task-specific vs cross-task retrieval?
