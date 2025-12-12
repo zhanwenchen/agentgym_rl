@@ -1,7 +1,8 @@
 set -x
 
-exp_name="14b_n8"
-pure_agent_model_name="Qwen2.5-14B-Instruct"
+exp_name="${MODEL_SIZE}_n8"
+export MODEL_SIZE="${MODEL_SIZE^^}"
+pure_agent_model_name="Qwen2.5-${MODEL_SIZE}-Instruct"
 
 
 # export CUDA_LAUNCH_BLOCKING="0"
@@ -32,7 +33,7 @@ export gpu_memory_utilization=0.5 # 0.5 works.
 # gpu_memory_utilization=0.40 # 0.7
 export NUM_GPUS=$(echo ${CUDA_VISIBLE_DEVICES} | tr -cd , | wc -c); ((NUM_GPUS++))
 # export train_batch_size="${NUM_GPUS}" # NOTE: needs to match num gpus # 4 works
-export BATCH_SIZE_PER_GPU=2 # 1 works
+export BATCH_SIZE_PER_GPU=1 # 1 works
 export train_batch_size=$((${NUM_GPUS} * ${BATCH_SIZE_PER_GPU}))
 export tensor_model_parallel_size=1 # NOTE: needs to match num gpus
 # export tensor_model_parallel_size="${NUM_GPUS}" # NOTE: needs to match num gpus
@@ -73,6 +74,8 @@ rollout_sample_num=8 # 1 works
 ppo_mini_batch_size="${NUM_GPUS}" # 4 works
 ppo_micro_batch_size_per_gpu=1
 ppo_inner_epochs=1
+
+echo "ppo_mini_batch_size: ${ppo_mini_batch_size}"
 # XDG_DATA_DIRS
 # export BATCH_SIZE=$((${NUM_GPUS} * ${BATCH_SIZE_PER_GPU}))
 
@@ -96,7 +99,7 @@ mkdir -p ${model_save_path}
 
 # HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=online python3 -m verl.agent_trainer.main_ppo  \
 # HYDRA_FULL_ERROR=1 WANDB_MODE=online python -m verl.agent_trainer.main_ppo  \
-HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=online python -m verl.agent_trainer.main_ppo  \
+HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=online "${PYTHON_BIN}" -m verl.agent_trainer.main_ppo  \
     algorithm.adv_estimator=grpo \
     algorithm.rounds_ctrl.type=fixed \
     algorithm.rounds_ctrl.rounds=20 \

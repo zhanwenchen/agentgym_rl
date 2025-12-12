@@ -94,3 +94,4 @@ scp -r AgentGym-RL/AgentItemId riv:~/agentgym_rl/AgentGym-RL
 
 conda remove gcc gxx libstdcxx-ng # nope. Need to module load gcc/14
 pip install click==8.0.1 # click 8.3* breaks ray
+bash examples/eval/sciworld_eval.sh |& tee log_eval_512gb_80gb_3b_n8.log

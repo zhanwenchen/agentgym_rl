@@ -17,28 +17,26 @@ Generate responses given a dataset of prompts
 from collections import defaultdict
 import json
 from logging import getLogger, INFO
-import ray
-import numpy as np
-import hydra
-import verl.utils.torch_functional as verl_F
 import os
+from pprint import pprint, pformat
+import ray
+import hydra
+import numpy as np
+from omegaconf import OmegaConf
+import pandas as pd
+from tqdm import tqdm
+from verl import DataProto
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils import torch_functional as verl_F, hf_tokenizer
+from verl.utils.agentgym.client import init_env_client
+from verl.utils.fs import copy_local_path_from_hdfs
+from verl.utils.model import compute_position_id_with_mask
+from verl.workers.agent_fsdp_workers import ActorRolloutRefWorker
 
+
+# os.environ['TORCH_COMPILE_DISABLE'] = '1'
 os.environ['NCCL_DEBUG'] = 'WARN'
 os.environ['TOKENIZERS_PARALLELISM'] = 'true'
-# os.environ['TORCH_COMPILE_DISABLE'] = '1'
-
-from verl.utils.model import compute_position_id_with_mask
-
-import pandas as pd
-
-from transformers import AutoTokenizer
-
-from verl import DataProto
-from verl.utils.fs import copy_local_path_from_hdfs
-from verl.workers.agent_fsdp_workers import ActorRolloutRefWorker
-from verl.utils.hdfs_io import makedirs
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
-from verl.utils.agentgym.client import init_env_client
 
 
 logger = getLogger(__name__)
@@ -47,31 +45,40 @@ logger.setLevel(INFO)
 
 @hydra.main(config_path='config', config_name='generation', version_base=None)
 def main(config):
-    from pprint import pprint
-    from omegaconf import OmegaConf
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
     local_path = copy_local_path_from_hdfs(config.model.path)
-    from verl.utils import hf_tokenizer
     tokenizer = hf_tokenizer(local_path)
 
     if config.rollout.temperature == 0.:
         assert config.data.n_samples == 1, 'When temperature=0, n_samples must be 1.'
 
     # read dataset. Note that the dataset should directly contain chat template format (e.g., a list of dictionary)
-    dataset = pd.read_json(os.path.join(config.data.path, f"{config.agentgym.task_name}_test.json"))
-    item_ids = dataset[config.data.prompt_key].tolist()
+    task_name = config.agentgym.task_name
+    fpath_task = os.path.join(config.data.path, f"{task_name}_test.json")
+    dataset = pd.read_json(fpath_task)
+    item_ids: list[str] = dataset[config.data.prompt_key].tolist() # sciworld_4391, etc
+    logger.warning(f'main_generation.main: {item_ids = }. {fpath_task = }')
     # load sub category test file
     category_files = os.listdir(config.data.path)
-    category_files = [f for f in category_files if not f.startswith(f"{config.agentgym.task_name}_test")]
-    category_map = {}
-    for category_file in category_files:
-        path = os.path.join(config.data.path, category_file)
-        print(f'{path = }')
-        with open(path, "r") as f:
-            datas = json.load(f)
+    category_files = [f for f in category_files if f.startswith(task_name) and not f.startswith(f"{task_name}_test")]
+    logger.warning(f'main_generation.main: {category_files = }')
+    if not category_files:
+        category_map = {item_id: f"{task_name}_test" for item_id in item_ids}
+        category_files = [f"{task_name}_test.json"]
+    else:
+        category_map = {}
+        for category_file in category_files:
+            path = os.path.join(config.data.path, category_file)
+            logger.warning(f'main_generation.main: {path = }')
+            with open(path, "r") as f:
+                datas = json.load(f)
             for data in datas:
                 category_map[data["item_id"]] = category_file.split(".")[0]
+        # if not f'{task_name}_test.json' in category_files:
+    # if not f'{task_name}_test.json' in category_files:
+        # category_map |= {item_id: f"{task_name}_test" for item_id in item_ids}
+    logger.warning(f'main_generation.main: \n{pformat(category_map) = }')
 
     tokenizer.padding_side = 'left'
     if tokenizer.pad_token is None:
@@ -119,6 +126,8 @@ def main(config):
         batch_item_ids = item_ids[start_idx: end_idx]
         prompt_with_chat_template = ["<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n" + env_client.conversation_start[0]["value"] + "<|im_end|>\n<|im_start|>assistant\n" + env_client.conversation_start[1]["value"] + "<|im_end|>" for _ in range(len(batch_item_ids))]
         if not prompt_with_chat_template:
+            logger.warning(f'No prompts found in the batch. {batch_idx = }, {start_idx = }, {end_idx = }')
+            continue
             raise ValueError(f'No prompts found in the batch. {batch_idx = }, {start_idx = }, {end_idx = }')
         messages = [[{"role": "user", "content": env_client.conversation_start[0]["value"]},
                      {"role": "assistant", "content": env_client.conversation_start[1]["value"]}] for _ in range(len(batch_item_ids))]
@@ -164,19 +173,26 @@ def main(config):
     output_lst = output_np.tolist()
 
     print("============Total Task Evaluation============")
-    print(f"Avg@{config.data.n_samples}: {np.mean(output_np)}")
-    print(f"Pass@{config.data.n_samples}: {np.mean(np.max(output_np, axis=-1) > 0)}")
+    print(f"Avg@{config.data.n_samples}: {np.mean(output_np):.4f}")
+    print(f"Pass@{config.data.n_samples}: {np.mean(np.max(output_np, axis=-1) > 0):.4f}")
     print("============Sub Task Evaluation============")
 
     category_success_bucket = defaultdict(list)
-    for item_id, score in zip(item_ids, output_lst):
+    for item_id, score in tqdm(zip(item_ids, output_lst)):
+        logger.warning(f'{item_id = } {score = } ')
+        # try:
         category = category_map[item_id]
+        # except KeyError as e:
+        #     logger.warning(f'{item_id} not found in {pformat(category_map) = }.')
+        #     # continue
+        #     category = category_map[item_id] = item_id.split('_')[0]
+            # category_success_bucket[category] = [score]
         category_success_bucket[category].append(score)
     for category_file in category_files:
         category = category_file.split(".")[0]
         print(f"Category: {category}")
-        print(f"Avg@{config.data.n_samples}: {np.mean(np.array(category_success_bucket[category]))}")
-        print(f"Pass@{config.data.n_samples}: {np.mean(np.max(np.array(category_success_bucket[category]), axis=-1) > 0)}")
+        print(f"Avg@{config.data.n_samples}: {np.mean(np.array(category_success_bucket[category])):.4g}")
+        print(f"Pass@{config.data.n_samples}: {np.mean(np.max(np.array(category_success_bucket[category]), axis=-1) > 0):.4g}")
 
 
 

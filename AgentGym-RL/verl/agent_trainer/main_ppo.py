@@ -84,6 +84,13 @@ def main_task(config):
     }
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping, n_gpus_per_node=config.trainer.n_gpus_per_node)
+    # resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping, n_gpus_per_node=config.trainer.n_gpus_per_node, max_colocate_count=max_colocate_count)
+
+    #     resource_pool_spec: dict[str, list[int]]
+    # mapping: dict[Role, str]
+    # resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
+    # n_gpus_per_node: int = field(default_factory=int)
+    # max_colocate_count: int = field(default_factory=int)
 
     trainer = RayPPOTrainer(config=config,
                             tokenizer=tokenizer,
