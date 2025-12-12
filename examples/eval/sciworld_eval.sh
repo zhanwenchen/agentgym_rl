@@ -9,7 +9,7 @@ task_name="sciworld"
 # source activate
 # conda activate agentgym-rl
 
-env_server_url="http://localhost:36001"
+env_server_url="http://localhost:${PORT}"
 
 sample_num=1
 max_rounds=30
@@ -41,6 +41,7 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.max_tokens=200 \
     rollout.tensor_model_parallel_size=1 \
     rollout.rollout_log_dir=executer_logs
+
 status=$?
 exit $status
 

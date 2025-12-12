@@ -1,7 +1,8 @@
 # Pretrained models, model checkpoints, and logs
 saves
 models
-
+executor_logs
+executer_logs
 
 **/*.pt
 **/checkpoints
