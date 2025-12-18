@@ -20,8 +20,7 @@ export DIRPATH_PROJECT="${HOME}/agentgym_rl"
 
 cd "${DIRPATH_PROJECT}"
 
-# Activate conda environment
-conda activate agog
+export CONDA_PREFIX="${HOME}/envs/agog"
 
 echo "CONDA_PREFIX=${CONDA_PREFIX}"
 

@@ -22,7 +22,15 @@ export gpu_memory_utilization=0.5 # originally 0.95
 model_path=${ckpt_path}/huggingface
 
 # cd AgentGym-RL/scripts
-"${PYTHON_BIN}" ${HOME}/agentgym_rl/AgentGym-RL/scripts/model_merger.py --local_dir ${ckpt_path}
+
+if [[ "${ckpt_path}" == *"global_step_"* ]]; then
+    echo "Using finetuned model ${ckpt_path}, merging with base model."
+    "${PYTHON_BIN}" "${HOME}/agentgym_rl/AgentGym-RL/scripts/model_merger.py" --local_dir "${ckpt_path}"
+    echo "Using finetuned model ${ckpt_path}, merging complete."
+else
+    echo "Using pretrained model, no need to merge."
+fi
+
 
     # data.path=AgentEval/${task_name} \
 HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \

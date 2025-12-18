@@ -87,7 +87,7 @@ echo "ppo_mini_batch_size: ${ppo_mini_batch_size}"
 
 total_epoches=10
 
-model_save_dir="AgentGym-RL/saves"
+model_save_dir="${DIRPATH_PROJECT}/AgentGym-RL/saves"
 mkdir -p ${model_save_dir}
 model_save_path=${model_save_dir}/${exp_name}
 
@@ -101,7 +101,7 @@ HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=o
     algorithm.adv_estimator=grpo \
     algorithm.rounds_ctrl.type=fixed \
     algorithm.rounds_ctrl.rounds=20 \
-    data.train_file=AgentGym-RL/AgentItemId/${task_name}_train.json \
+    data.train_file="${DIRPATH_PROJECT}/AgentGym-RL/AgentItemId/${task_name}_train.json" \
     data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=1024 \
     data.max_response_length=4096 \
