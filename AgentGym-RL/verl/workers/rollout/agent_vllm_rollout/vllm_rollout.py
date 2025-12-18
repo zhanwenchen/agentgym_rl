@@ -31,6 +31,8 @@ from logging import getLogger
 import os
 import time
 from typing import List, Optional
+
+import numpy as np
 from omegaconf import DictConfig
 from tensordict import TensorDict
 import torch
@@ -48,7 +50,7 @@ from verl.utils.torch_functional import pad_sequence_to_length
 from verl.utils.agentgym.client import init_env_client
 from verl.utils.memory import MemoryBank
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.schemas import RolloutHandler, Message, _pre_process_inputs
+from verl.workers.rollout.schemas import RolloutEpisode as RolloutHandler, Message, _pre_process_inputs
 
 
 LOGGER = getLogger(__name__)
@@ -289,6 +291,11 @@ class vLLMRollout(BaseRollout):
                 )
                 rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
 
+                # Track step-level metrics
+                rollout_handler_ls[idx].step_rewards.append(step_output.reward)
+                is_valid_action = content in step_output.valid_actions
+                rollout_handler_ls[idx].step_valid_actions.append(is_valid_action)
+
                 # Store successful experiences in memory bank when episode is done
                 if self.memory_enabled and rollout_handler_ls[idx].done:
                     for obs_text, action in step_experiences[idx]:
@@ -305,7 +312,9 @@ class vLLMRollout(BaseRollout):
             except Exception as e:
                 rollout_handler_ls[idx].score = 0
                 rollout_handler_ls[idx].done = True
-                LOGGER.info(f"Rollou step Error: {e} item id = {rollout_handler_ls[idx].item_id}")
+                rollout_handler_ls[idx].step_rewards.append(0.0)
+                rollout_handler_ls[idx].step_valid_actions.append(False)
+                LOGGER.info(f"Rollout step Error: {e} item id = {rollout_handler_ls[idx].item_id}")
                 step_experiences[idx] = []  # Clear on error
                 return True
         while rounds < max_rounds and not all_done_flag:
@@ -367,6 +376,7 @@ class vLLMRollout(BaseRollout):
         # breakpoint()
         response_ids, response_attention_mask, response_position_ids, response_loss_mask = [], [], [], []
         scores, messages = [], []
+        step_rewards_list, step_valid_actions_list = [], []
 
         for rollout_handler in rollout_handler_ls:
             # check length
@@ -381,6 +391,8 @@ class vLLMRollout(BaseRollout):
             response_loss_mask.append(torch.tensor(rollout_handler.response_loss_mask, dtype=torch_int32, device=cur_device))
             scores.append(rollout_handler.score)
             messages.append(rollout_handler.messages)
+            step_rewards_list.append(rollout_handler.step_rewards)
+            step_valid_actions_list.append(rollout_handler.step_valid_actions)
         LOGGER.info(f'vLLMRollout.generate_sequences: Completed processing {len(rollout_handler_ls)} rollout handlers.')
         # breakpoint()
 
@@ -428,7 +440,9 @@ class vLLMRollout(BaseRollout):
                         records = {
                             "item_id": rollout_handler_ls[idx].item_id,
                             "conversations": [msg.to_dict() for msg in msgs],
-                            "reward": scores[idx]
+                            "reward": scores[idx],
+                            "step_rewards": rollout_handler_ls[idx].step_rewards,
+                            "step_valid_actions": rollout_handler_ls[idx].step_valid_actions,
                         }
                         json_msg.append(records)
                     json.dump(json_msg, f, ensure_ascii=True, indent=4)
@@ -448,6 +462,20 @@ class vLLMRollout(BaseRollout):
         LOGGER.info(f'vLLMRollout.generate_sequences: Closed all environment clients.')
         # breakpoint()
 
+        # Compute step-level metrics tensors
+        valid_actions_per_episode = torch.tensor(
+            [sum(va) for va in step_valid_actions_list], dtype=torch.float32, device=input_ids.device
+        )
+        total_steps_per_episode = torch.tensor(
+            [len(va) for va in step_valid_actions_list], dtype=torch.float32, device=input_ids.device
+        )
+        # Avoid division by zero
+        valid_actions_ratio = valid_actions_per_episode / torch.clamp(total_steps_per_episode, min=1.0)
+
+        # Compute progress rate: episode score divided by steps taken
+        episode_scores = torch.tensor(scores, dtype=torch.float32, device=input_ids.device)
+        progress_rate = episode_scores / torch.clamp(total_steps_per_episode, min=1.0)
+
         batch = TensorDict(
             {
                 'prompts': input_ids,
@@ -458,7 +486,12 @@ class vLLMRollout(BaseRollout):
                 'response_mask': response_mask,
                 'scores': reward_tensor,
                 'task_rounds': torch.tensor(task_rounds, dtype=torch.float32, device=input_ids.device),
-                'task_scores': reward_tensor
+                'task_scores': reward_tensor,
+                'valid_actions_per_episode': valid_actions_per_episode,
+                'total_steps_per_episode': total_steps_per_episode,
+                'valid_actions_ratio': valid_actions_ratio,
+                'episode_scores': episode_scores,
+                'progress_rate': progress_rate,
             },
             batch_size=batch_size)
         LOGGER.info(f'vLLMRollout.generate_sequences: Constructed final output batch tensor dict.')
@@ -480,4 +513,10 @@ class vLLMRollout(BaseRollout):
         LOGGER.info(f'vLLMRollout.generate_sequences: Completed rollout for all agents.')
         # breakpoint()
 
-        return DataProto(batch=batch)
+        # Build non-tensor batch for variable-length step metrics
+        non_tensor_batch = {
+            'step_rewards': np.array(step_rewards_list, dtype=object),
+            'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
+        }
+
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

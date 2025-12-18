@@ -45,8 +45,8 @@ class MemoryBank:
 
     def __init__(
         self,
-        encoder_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-        embedding_dim: int | None,
+        encoder_name: str,
+        embedding_dim: int,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         min_reward: float = 0.5,
         task_specific: bool = True,
@@ -143,7 +143,7 @@ class MemoryBank:
     def retrieve(
         self,
         query_text: str,
-        k: int = 3,
+        k: int, # 3
         task_name: str | None,
     ) -> list[Experience]:
         '''

@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-from typing import List, Literal, Optional
+from dataclasses import dataclass, field
+from typing import Literal, Optional
 from transformers import PreTrainedTokenizer
 import torch
 
 
-def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[int]:
+def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[int]:
     # remove the left padding in the prompt token_id
     # pad_token_id = self.llm_engine.tokenizer.pad_token_id if self.llm_engine.tokenizer.pad_token_id is not None else self.llm_engine.tokenizer.eos_token_id
     non_pad_index = torch.nonzero(prompt_token_ids != pad_token_id, as_tuple=False)[0][0]
@@ -15,65 +15,64 @@ class Message:
     def __init__(self, role: str, content: str):
         self.role = role
         self.content = content
-    def to_dict(self):
+    def to_dict(self) -> dict[str, str]:
         return {'role': self.role, 'content': self.content}
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self.to_dict())
-    def __str__(self):
-        return self.__repr_
+    def __str__(self) -> str:
+        return self.__repr__()
 
-class RolloutHandler:
-    def __init__(
-        self,
-        messages: List[Message],
-        task_name: str,
-        item_id: int,
-        score: float,
-        done: bool,
-        input_ids: List[int],
-        prompt_ids: List[int],
-        response_ids: List[int],
-        attention_mask: List[int],
-        prompt_attention_mask: List[int],
-        response_attention_mask: List[int],
-        position_ids: List[int],
-        prompt_position_ids: List[int],
-        response_position_ids: List[int],
-        loss_mask: List[int],
-        prompt_loss_mask: List[int],
-        response_loss_mask: List[int],
-        max_response_len: int = 8192,
-        max_model_len: int = 32768
-    ):
-        self.messages = messages
-        self.task_name = task_name
-        self.item_id = item_id
-        self.score = score
-        self.done = done
-        self.input_ids = input_ids
-        self.prompt_ids = prompt_ids
-        self.response_ids = response_ids
-        self.attention_mask = attention_mask
-        self.prompt_attention_mask = prompt_attention_mask
-        self.response_attention_mask = response_attention_mask
-        self.position_ids = position_ids
-        self.prompt_position_ids = prompt_position_ids
-        self.response_position_ids = response_position_ids
-        self.loss_mask = loss_mask
-        self.prompt_loss_mask = prompt_loss_mask
-        self.response_loss_mask = response_loss_mask
-        self.max_response_len = max_response_len
-        self.max_model_len = max_model_len
-        self.format_config: dict = {
-            "qwen": {
-                "assistat_prefix_msg": "\n<|im_start|>assistant\n",
-                "assistat_suffix_msg": "<|im_end|>",
-                "user_prefix_msg": "\n<|im_start|>user\n",
-                "user_suffix_msg": "<|im_end|>",
-            }
-        }
 
-    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer, memory_examples: Optional[List[dict]] = None) -> List[int]:
+QWEN_FORMAT_CONFIG: dict[str, str] = {
+    'assistant_prefix': '\n<|im_start|>assistant\n',
+    'assistant_suffix': '<|im_end|>',
+    'user_prefix': '\n<|im_start|>user\n',
+    'user_suffix': '<|im_end|>',
+}
+
+
+@dataclass
+class RolloutEpisode:
+    '''Tracks the state of a single agent episode during rollout.'''
+
+    # Episode identity
+    task_name: str
+    item_id: int
+
+    # Conversation state
+    messages: list[Message]
+
+    # Episode status
+    score: float = 0.0
+    done: bool = False
+
+    # Token sequences (grow during rollout)
+    input_ids: list[int] = field(default_factory=list)
+    attention_mask: list[int] = field(default_factory=list)
+    position_ids: list[int] = field(default_factory=list)
+    loss_mask: list[int] = field(default_factory=list)
+
+    # Initial prompt snapshots (for extracting response later)
+    prompt_ids: list[int] = field(default_factory=list)
+    prompt_attention_mask: list[int] = field(default_factory=list)
+    prompt_position_ids: list[int] = field(default_factory=list)
+    prompt_loss_mask: list[int] = field(default_factory=list)
+
+    # Response sequences (populated by truncate_output_ids)
+    response_ids: list[int] = field(default_factory=list)
+    response_attention_mask: list[int] = field(default_factory=list)
+    response_position_ids: list[int] = field(default_factory=list)
+    response_loss_mask: list[int] = field(default_factory=list)
+
+    # Step-level metrics
+    step_rewards: list[float] = field(default_factory=list)
+    step_valid_actions: list[bool] = field(default_factory=list)
+
+    # Limits
+    max_response_len: int = 8192
+    max_model_len: int = 32768
+
+    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer, memory_examples: Optional[list[dict]] = None) -> list[int]:
         """
         Generate prompt with optional memory examples injected before current conversation.
 
@@ -111,14 +110,14 @@ class RolloutHandler:
         self,
         tokenizer: PreTrainedTokenizer,
         content: str,
-        format: Literal["qwen"] = "qwen",
+        format: Literal['qwen'] = 'qwen',
     ) -> None:
         msg = Message(role='assistant', content=content)
         self.messages.append(msg)
-        assert format in self.format_config.keys(), f"format {format} not supported"
-        prefix_msg = self.format_config[format]["assistat_prefix_msg"]
+        assert format == 'qwen', f'format {format} not supported'
+        prefix_msg = QWEN_FORMAT_CONFIG['assistant_prefix']
         prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
-        suffix_msg = self.format_config[format]["assistat_suffix_msg"]
+        suffix_msg = QWEN_FORMAT_CONFIG['assistant_suffix']
         suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
         response = tokenizer.encode(content, add_special_tokens=False)
         if self.input_ids[-len(prefix_token_ids) :] == prefix_token_ids:
@@ -150,14 +149,14 @@ class RolloutHandler:
         self,
         tokenizer: PreTrainedTokenizer,
         content: str,
-        format: Literal["qwen"] = "qwen",
+        format: Literal['qwen'] = 'qwen',
     ) -> None:
         msg = Message(role='user', content=content)
         self.messages.append(msg)
-        assert format in self.format_config.keys(), f"format {format} not supported"
-        prefix_msg = self.format_config[format]["user_prefix_msg"]
+        assert format == 'qwen', f'format {format} not supported'
+        prefix_msg = QWEN_FORMAT_CONFIG['user_prefix']
         prefix_token_ids = tokenizer.encode(prefix_msg, add_special_tokens=False)
-        suffix_msg = self.format_config[format]["user_suffix_msg"]
+        suffix_msg = QWEN_FORMAT_CONFIG['user_suffix']
         suffix_token_ids = tokenizer.encode(suffix_msg, add_special_tokens=False)
         content_token_ids = tokenizer.encode(content, add_special_tokens=False)
 

@@ -115,6 +115,8 @@ def main(config):
     dp_size = wg.world_size // config.rollout.tensor_model_parallel_size
     num_batch = (total_samples // config_batch_size) + 1
     output_lst = [[] for _ in range(config.data.n_samples)]
+    grounding_accuracy_lst = [[] for _ in range(config.data.n_samples)]
+    progress_rate_lst = [[] for _ in range(config.data.n_samples)]
     env_client = init_env_client(config.agentgym)
 
     logger.warning(f'{total_samples = }, {config_batch_size = }, {num_batch = }, {dp_size = }')
@@ -166,19 +168,30 @@ def main(config):
             output = output[:real_batch_size]
 
             output_lst[i].extend(output.batch['task_scores'].sum(dim=-1).tolist())
+            grounding_accuracy_lst[i].extend(output.batch['valid_actions_ratio'].tolist())
+            progress_rate_lst[i].extend(output.batch['progress_rate'].tolist())
 
     # convert output_lst from (n_samples, n_data) to (n_data, n_sampels)
     output_np = np.array(output_lst, dtype=object)
     output_np = np.transpose(output_np, axes=(1, 0))
     output_lst = output_np.tolist()
 
+    grounding_accuracy_np = np.array(grounding_accuracy_lst, dtype=object)
+    grounding_accuracy_np = np.transpose(grounding_accuracy_np, axes=(1, 0))
+    progress_rate_np = np.array(progress_rate_lst, dtype=object)
+    progress_rate_np = np.transpose(progress_rate_np, axes=(1, 0))
+
     print("============Total Task Evaluation============")
     print(f"Avg@{config.data.n_samples}: {np.mean(output_np):.4f}")
     print(f"Pass@{config.data.n_samples}: {np.mean(np.max(output_np, axis=-1) > 0):.4f}")
+    print(f"Grounding Accuracy: {np.mean(grounding_accuracy_np):.4f}")
+    print(f"Progress Rate: {np.mean(progress_rate_np):.4f}")
     print("============Sub Task Evaluation============")
 
     category_success_bucket = defaultdict(list)
-    for item_id, score in tqdm(zip(item_ids, output_lst)):
+    category_grounding_bucket = defaultdict(list)
+    category_progress_bucket = defaultdict(list)
+    for item_id, score, grounding, progress in tqdm(zip(item_ids, output_lst, grounding_accuracy_np.tolist(), progress_rate_np.tolist())):
         logger.warning(f'{item_id = } {score = } ')
         # try:
         category = category_map[item_id]
@@ -188,11 +201,15 @@ def main(config):
         #     category = category_map[item_id] = item_id.split('_')[0]
             # category_success_bucket[category] = [score]
         category_success_bucket[category].append(score)
+        category_grounding_bucket[category].append(grounding)
+        category_progress_bucket[category].append(progress)
     for category_file in category_files:
         category = category_file.split(".")[0]
         print(f"Category: {category}")
         print(f"Avg@{config.data.n_samples}: {np.mean(np.array(category_success_bucket[category])):.4g}")
         print(f"Pass@{config.data.n_samples}: {np.mean(np.max(np.array(category_success_bucket[category]), axis=-1) > 0):.4g}")
+        print(f"Grounding Accuracy: {np.mean(np.array(category_grounding_bucket[category])):.4g}")
+        print(f"Progress Rate: {np.mean(np.array(category_progress_bucket[category])):.4g}")
 
 
 

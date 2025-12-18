@@ -55,7 +55,7 @@ rm -f $FLASH_ATTENTION_NAME
 pip install -e AgentGym-RL
 pip install -e AgentGym/agentenv
 pip install -e AgentGym/agentenv-sciworld
-pip install vllm==0.6.3 transformers==4.51.3 tokenizers peft==0.17.1
+pip install vllm==0.6.3 transformers==4.51.3 tokenizers huggingface_hub peft==0.17.1
 
 # Use scratch for models
 export DIRPATH_SAVES_SCRATCH="/scratch/${USER}/agentgym_rl_AgentGym-RL_saves"

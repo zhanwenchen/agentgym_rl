@@ -1,3 +1,4 @@
+set -euo pipefail
 set -x
 export VLLM_USE_MODELSCOPE=0
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
@@ -40,7 +41,7 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.max_model_len=32768 \
     rollout.max_tokens=200 \
     rollout.tensor_model_parallel_size=1 \
-    rollout.rollout_log_dir=executer_logs
+    rollout.rollout_log_dir=${ckpt_path}/executor_logs
 
 status=$?
 exit $status
