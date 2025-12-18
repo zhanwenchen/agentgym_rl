@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train_7b_n8
+#SBATCH --job-name=train_7b_n8_memory
 #SBATCH --account=hartvigsen_lab
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
@@ -15,6 +15,9 @@
 
 
 export MODEL_SIZE="7b"
-# export CHECKPOINT_DIR="${HOME}/agentgym_rl/AgentGym-RL/saves/${MODEL_SIZE}_n8"
+export MEMORY_ENABLED=true
+export MEMORY_K=3
+export MEMORY_MIN_REWARD=0.5
+
 
 source "${HOME}/agentgym_rl/scripts/slurm/train/train_shared.sh"

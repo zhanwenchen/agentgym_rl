@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=train_3b_memory
+#SBATCH --job-name=train_3b_n8_memory
 #SBATCH --account=hartvigsen_lab
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
@@ -15,6 +15,8 @@
 
 
 export MODEL_SIZE="3b"
-export USE_MEMORY=true
+export MEMORY_ENABLED=true
+export MEMORY_K=3
+export MEMORY_MIN_REWARD=0.5
 
-source "${HOME}/agentgym_rl/scripts/slurm/train/train_memory_shared.sh"
+source "${HOME}/agentgym_rl/scripts/slurm/train/train_shared.sh"
