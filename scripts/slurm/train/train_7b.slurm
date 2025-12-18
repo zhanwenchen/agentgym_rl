@@ -7,8 +7,8 @@
 #SBATCH --mem=256G
 #SBATCH --gres=gpu:a100:4
 #SBATCH --time=72:00:00
-#SBATCH --output=logs/log_%x_%j.log
-#SBATCH --error=logs/log_%x_%j.log
+#SBATCH --output=logs/train/log_%x_%j.log
+#SBATCH --error=logs/train/log_%x_%j.log
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=pct4et@virginia.edu
 #SBATCH --exclude=udc-an28-1,udc-an28-7,udc-an40-1

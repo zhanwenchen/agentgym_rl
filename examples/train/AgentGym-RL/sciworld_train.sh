@@ -117,6 +117,10 @@ HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=o
     actor_rollout_ref.rollout.max_model_len=32768 \
     actor_rollout_ref.rollout.max_tokens=200 \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${tensor_model_parallel_size}" \
+    actor_rollout_ref.rollout.memory.enabled="${MEMORY_ENABLED:-false}" \
+    actor_rollout_ref.rollout.memory.k="${MEMORY_K:-0}" \
+    actor_rollout_ref.rollout.memory.min_reward="${MEMORY_MIN_REWARD:-999}" \
+    actor_rollout_ref.rollout.memory.save_path="${model_save_path}/memory_bank" \
     actor_rollout_ref.actor.ppo_epochs=${ppo_inner_epochs} \
     actor_rollout_ref.actor.optim.lr=${policy_learning_rate} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${ppo_mini_batch_size} \
