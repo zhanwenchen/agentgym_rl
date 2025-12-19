@@ -83,9 +83,9 @@ class vLLMRollout(BaseRollout):
         assert tensor_parallel_size <= (world_size := get_world_size()), f"{tensor_parallel_size = } should be less than or equal to {world_size = }"
         max_num_batched_tokens = self.config.get('max_num_batched_tokens', 8192)
 
+        import os
         if kwargs.get('train_tp', None) is not None:
             # deployed with megatron
-            import os
             os.environ['CUDA_TIMER_STREAM_KAFKA_ENABLE'] = '0'
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             train_tp = kwargs.get('train_tp', None)
