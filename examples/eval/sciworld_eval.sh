@@ -15,7 +15,7 @@ env_server_url="http://localhost:${PORT}"
 sample_num=1
 max_rounds=30
 export batch_size=1
-export max_response_length=4096 # orginally 8192
+export max_response_length=8192 # orginally 8192
 export gpu_memory_utilization=0.5 # originally 0.95
 
 # ckpt_path="global_step_150/actor"
@@ -25,7 +25,7 @@ model_path=${ckpt_path}/huggingface
 
 if [[ "${ckpt_path}" == *"global_step_"* ]]; then
     echo "Using finetuned model ${ckpt_path}, merging with base model."
-    "${PYTHON_BIN}" "${HOME}/agentgym_rl/AgentGym-RL/scripts/model_merger.py" --local_dir "${ckpt_path}"
+    "${PYTHON_BIN}" "${DIRPATH_PROJECT}/AgentGym-RL/scripts/model_merger.py" --local_dir "${ckpt_path}"
     echo "Using finetuned model ${ckpt_path}, merging complete."
 else
     echo "Using pretrained model, no need to merge."
@@ -34,7 +34,7 @@ fi
 
     # data.path=AgentEval/${task_name} \
 HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
-    data.path="${HOME}/agentgym_rl/AgentGym-RL/AgentItemId/eval" \
+    data.path="${DIRPATH_PROJECT}/AgentGym-RL/AgentItemId/eval" \
     data.max_prompt_length=1024 \
     data.max_response_length=${max_response_length} \
     data.n_samples=${sample_num} \
@@ -49,7 +49,12 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.max_model_len=32768 \
     rollout.max_tokens=200 \
     rollout.tensor_model_parallel_size=1 \
-    rollout.rollout_log_dir=${ckpt_path}/executor_logs
+    rollout.memory.enabled="${MEMORY_ENABLED:-false}" \
+    rollout.memory.k="${MEMORY_K:-0}" \
+    rollout.memory.min_reward="${MEMORY_MIN_REWARD:-999}" \
+    rollout.memory.save_path="${ckpt_path}/memory_bank" \
+    rollout.rollout_log_dir="${ckpt_path}/executor_logs" \
+    "$@"
 
 status=$?
 exit $status

@@ -46,7 +46,6 @@ class MemoryBank:
     def __init__(
         self,
         encoder_name: str,
-        embedding_dim: int,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         min_reward: float = 0.5,
         task_specific: bool = True,
@@ -58,10 +57,10 @@ class MemoryBank:
 
         # Initialize encoder
         self.encoder = SentenceTransformer(encoder_name, device=device)
-        self.embedding_dim = embedding_dim or self.encoder.get_sentence_embedding_dimension()
+        self.embedding_dim = embedding_dim = self.encoder.get_sentence_embedding_dimension()
 
         # Initialize FAISS index (using L2 distance)
-        self.index = faiss.IndexFlatL2(self.embedding_dim)
+        self.index = faiss.IndexFlatL2(embedding_dim)
 
         # Store experiences
         self.experiences: list[Experience] = []
