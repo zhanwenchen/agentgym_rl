@@ -43,6 +43,27 @@ logger = getLogger(__name__)
 logger.setLevel(INFO)
 
 
+def _masked_mean(*, values: np.ndarray, mask: np.ndarray) -> tuple[float, int, int]:
+    """Compute mean over `values` where `mask` is True.
+
+    Args:
+        values: Metric values (any shape).
+        mask: Boolean mask aligned with values.
+
+    Returns:
+        A tuple of (mean, excluded_count, total_count).
+    """
+    values_float = np.asarray(values, dtype=float)
+    mask_bool = np.asarray(mask, dtype=bool)
+
+    total_count = int(values_float.size)
+    excluded_count = int(np.count_nonzero(~mask_bool))
+    if int(np.count_nonzero(mask_bool)) == 0:
+        return float("nan"), excluded_count, total_count
+
+    return float(np.mean(values_float[mask_bool])), excluded_count, total_count
+
+
 @hydra.main(config_path='config', config_name='generation', version_base=None)
 def main(config):
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
@@ -185,13 +206,61 @@ def main(config):
     print(f"Avg@{config.data.n_samples}: {np.mean(output_np):.4f}")
     print(f"Pass@{config.data.n_samples}: {np.mean(np.max(output_np, axis=-1) > 0):.4f}")
     print(f"Grounding Accuracy: {np.mean(grounding_accuracy_np):.4f}")
-    print(f"Progress Rate: {np.mean(progress_rate_np):.4f}")
+    progress_rate_all = float(np.mean(np.asarray(progress_rate_np, dtype=float)))
+    if (
+        config.metrics.ignore_invalid_trajectories
+        or config.metrics.exclude_negative_progress_rate
+        or config.metrics.clamp_negative_progress_rate_to_zero
+    ):
+        progress_rate_values_raw = np.asarray(progress_rate_np, dtype=float)
+        progress_rate_values = progress_rate_values_raw
+        clamped_count = 0
+        if bool(config.metrics.clamp_negative_progress_rate_to_zero):
+            clamped_count = int(np.count_nonzero(progress_rate_values_raw < 0.0))
+            progress_rate_values = np.maximum(progress_rate_values_raw, 0.0)
+        episode_scores = np.asarray(output_np, dtype=float)
+        valid_mask = np.ones_like(progress_rate_values, dtype=bool)
+        if bool(config.metrics.ignore_invalid_trajectories):
+            valid_mask &= ~np.isclose(
+                episode_scores,
+                float(config.metrics.invalid_episode_score),
+                atol=1e-6,
+            )
+        if bool(config.metrics.exclude_negative_progress_rate) and not bool(
+            config.metrics.clamp_negative_progress_rate_to_zero
+        ):
+            valid_mask &= progress_rate_values_raw >= 0.0
+        progress_rate_valid, excluded_count, total_count = _masked_mean(
+            values=progress_rate_values,
+            mask=valid_mask,
+        )
+        parts = [f"excluded {excluded_count}/{total_count}"]
+        if config.metrics.ignore_invalid_trajectories:
+            parts.append(f"episode_score=={float(config.metrics.invalid_episode_score):g}")
+        if config.metrics.clamp_negative_progress_rate_to_zero:
+            parts.append(f"clamped {clamped_count}/{total_count} progress_rate<0 to 0")
+        elif config.metrics.exclude_negative_progress_rate:
+            parts.append("progress_rate<0")
+        print(
+            "Progress Rate: "
+            f"{progress_rate_valid:.4f} "
+            f"({' + '.join(parts)}; raw={progress_rate_all:.4f})"
+        )
+    else:
+        print(f"Progress Rate: {progress_rate_all:.4f}")
     print("============Sub Task Evaluation============")
 
     category_success_bucket = defaultdict(list)
     category_grounding_bucket = defaultdict(list)
     category_progress_bucket = defaultdict(list)
-    for item_id, score, grounding, progress in tqdm(zip(item_ids, output_lst, grounding_accuracy_np.tolist(), progress_rate_np.tolist())):
+    for item_id, score, grounding, progress in tqdm(
+        zip(
+            item_ids,
+            output_lst,
+            grounding_accuracy_np.tolist(),
+            progress_rate_np.tolist(),
+        )
+    ):
         logger.warning(f'{item_id = } {score = } ')
         # try:
         category = category_map[item_id]
@@ -209,7 +278,48 @@ def main(config):
         print(f"Avg@{config.data.n_samples}: {np.mean(np.array(category_success_bucket[category])):.4g}")
         print(f"Pass@{config.data.n_samples}: {np.mean(np.max(np.array(category_success_bucket[category]), axis=-1) > 0):.4g}")
         print(f"Grounding Accuracy: {np.mean(np.array(category_grounding_bucket[category])):.4g}")
-        print(f"Progress Rate: {np.mean(np.array(category_progress_bucket[category])):.4g}")
+        category_progress = np.asarray(category_progress_bucket[category], dtype=float)
+        category_episode_scores = np.asarray(category_success_bucket[category], dtype=float)
+        if (
+            config.metrics.ignore_invalid_trajectories
+            or config.metrics.exclude_negative_progress_rate
+            or config.metrics.clamp_negative_progress_rate_to_zero
+        ):
+            category_progress_raw = category_progress
+            category_progress_values = category_progress_raw
+            clamped_count = 0
+            if bool(config.metrics.clamp_negative_progress_rate_to_zero):
+                clamped_count = int(np.count_nonzero(category_progress_raw < 0.0))
+                category_progress_values = np.maximum(category_progress_raw, 0.0)
+            valid_mask = np.ones_like(category_progress, dtype=bool)
+            if bool(config.metrics.ignore_invalid_trajectories):
+                valid_mask &= ~np.isclose(
+                    category_episode_scores,
+                    float(config.metrics.invalid_episode_score),
+                    atol=1e-6,
+                )
+            if bool(config.metrics.exclude_negative_progress_rate) and not bool(
+                config.metrics.clamp_negative_progress_rate_to_zero
+            ):
+                valid_mask &= category_progress_raw >= 0.0
+            progress_rate_valid, excluded_count, total_count = _masked_mean(
+                values=category_progress_values,
+                mask=valid_mask,
+            )
+            parts = [f"excluded {excluded_count}/{total_count}"]
+            if config.metrics.ignore_invalid_trajectories:
+                parts.append(f"episode_score=={float(config.metrics.invalid_episode_score):g}")
+            if config.metrics.clamp_negative_progress_rate_to_zero:
+                parts.append(f"clamped {clamped_count}/{total_count} progress_rate<0 to 0")
+            elif config.metrics.exclude_negative_progress_rate:
+                parts.append("progress_rate<0")
+            print(
+                "Progress Rate: "
+                f"{progress_rate_valid:.4g} "
+                f"({' + '.join(parts)})"
+            )
+        else:
+            print(f"Progress Rate: {float(np.mean(category_progress)):.4g}")
 
 
 

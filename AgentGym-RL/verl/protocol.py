@@ -540,7 +540,12 @@ class DataProto:
 
         non_tensor_batch = list_of_dict_to_dict_of_list(list_of_dict=[d.non_tensor_batch for d in data])
         for key, val in non_tensor_batch.items():
-            non_tensor_batch[key] = np.concatenate(val, axis=0)
+            # assert isinstance(val, val)
+            # assert val.ndim == 2
+            try:
+                non_tensor_batch[key] = np.concatenate(val, axis=0)
+            except Exception as e:
+                raise ValueError(f'Failed to concat non tensor data with {key = }, {val.ndim = }  {val = }.') from e
 
         return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
 
@@ -604,7 +609,7 @@ import ray
 class DataProtoFuture:
     """
     DataProtoFuture aims to eliminate actual data fetching on driver. By doing so, the driver doesn't have to wait
-    for data so that asynchronous execution becomes possible. 
+    for data so that asynchronous execution becomes possible.
     DataProtoFuture contains a list of futures from another WorkerGroup of size world_size.
     - collect_fn is a Callable that reduces the list of futures to a DataProto
     - dispatch_fn is a Callable that partitions the DataProto into a list of DataProto of size world_size and then select

@@ -34,14 +34,14 @@ from typing import List, Optional
 
 import numpy as np
 from omegaconf import DictConfig
-from tensordict import TensorDict
+from tensordict import TensorDict # type: ignore
 import torch
 from torch import int32 as torch_int32
 import torch.distributed
 from torch.distributed import get_rank, get_world_size
 from torch.nn.utils.rnn import pad_sequence
 from torch import nn
-from tqdm import tqdm
+from tqdm import tqdm # type: ignore
 from vllm import SamplingParams
 from verl import DataProto
 from verl.third_party.vllm import LLM, vllm_version, parallel_state as vllm_ps
@@ -51,6 +51,7 @@ from verl.utils.agentgym.client import init_env_client
 from verl.utils.memory import MemoryBank
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import RolloutEpisode as RolloutHandler, Message, _pre_process_inputs
+from agentenv.envs.sciworld import SciworldEnvClient # type: ignore
 
 
 LOGGER = getLogger(__name__)
@@ -92,7 +93,7 @@ class vLLMRollout(BaseRollout):
             num_tp_per_train_tp = train_tp // tensor_parallel_size
             if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                  num_tp_per_train_tp=num_tp_per_train_tp)
+                                                  num_tp_per_train_tp=num_tp_per_train_tp) # type: ignore
 
         self.inference_engine = LLM(
             actor_module,
@@ -110,7 +111,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights()
+        self.inference_engine.offload_model_weights() # type: ignore
 
         kwargs = dict(
             n=1,
@@ -125,11 +126,11 @@ class vLLMRollout(BaseRollout):
         # supporting adding any sampling params from the config file
         for k in rollout_config.keys():
             if hasattr(SamplingParams(), str(k)):
-                kwargs[k] = rollout_config.get(k)
+                kwargs[k] = rollout_config.get(k) # type: ignore
         kwargs["n"] = 1  # because we have repeated task n times
 
         LOGGER.info(f"kwargs: {kwargs}")
-        self.sampling_params = SamplingParams(**kwargs)
+        self.sampling_params = SamplingParams(**kwargs) # type: ignore
 
         self.pad_token_id = tokenizer.pad_token_id
 
@@ -251,11 +252,16 @@ class vLLMRollout(BaseRollout):
         batch_size *= self.config.n
         rollout_handler_ls = self.preprocess_prompt_to_rollout_handler(prompts, n=self.config.n)
         env_clients = [init_env_client(self.agentgym_config) for _ in range(batch_size)]
+        prev_valid_actions_by_env: list[list[str]] = [[] for _ in range(batch_size)]
         time.sleep(self.config.send_interval) # take a break before sendng request
         all_done_flag = False
         for idx, rollout_handler in enumerate(rollout_handler_ls):
             try:
-                env_clients[idx].reset(rollout_handler.item_id)
+                reset_response = env_clients[idx].reset(rollout_handler.item_id)
+                if isinstance(reset_response, dict) and "valid_actions" in reset_response:
+                    valid_actions = reset_response["valid_actions"]
+                    if isinstance(valid_actions, list):
+                        prev_valid_actions_by_env[idx] = [str(action) for action in valid_actions]
                 task = env_clients[idx].observe()
                 rollout_handler.add_user_message(self.tokenizer, task)
             except TimeoutError:
@@ -270,7 +276,16 @@ class vLLMRollout(BaseRollout):
         # Track experiences for memory storage
         step_experiences: List[List[tuple]] = [[] for _ in range(batch_size)]  # Store (obs_text, action) for each agent
 
+        def _matches_valid_action(action: str, valid_actions: list[str]) -> bool:
+            for valid_action in valid_actions:
+                if action == valid_action:
+                    return True
+                if action.startswith(f"{valid_action} "):
+                    return True
+            return False
+
         def agent_step(i, idx):
+            message_start_idx = len(rollout_handler_ls[idx].messages)
             content = self.tokenizer.decode(response_ids[i], skip_special_tokens=True)
 
             # Store observation before action for memory
@@ -283,18 +298,50 @@ class vLLMRollout(BaseRollout):
             rollout_handler_ls[idx].add_assistant_message(self.tokenizer, content)
             task_rounds[idx] += 1
             try:
+                valid_actions_before = prev_valid_actions_by_env[idx]
                 step_output = env_clients[idx].step(content)
-                state, rollout_handler_ls[idx].score, rollout_handler_ls[idx].done = (
-                    step_output.state,
-                    step_output.reward,
-                    step_output.done,
-                )
+                state = step_output.state
+                done = step_output.done
+                action = step_output.action
+
+                prev_valid_actions_by_env[idx] = [str(a) for a in step_output.valid_actions]
+
+                prev_score = rollout_handler_ls[idx].score
+                new_score = float(step_output.reward)
+                rollout_handler_ls[idx].score = new_score
+                rollout_handler_ls[idx].done = done
                 rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
 
                 # Track step-level metrics
-                rollout_handler_ls[idx].step_rewards.append(step_output.reward)
-                is_valid_action = content in step_output.valid_actions
+                if isinstance(env_clients[idx], SciworldEnvClient):
+                    step_reward = new_score - float(prev_score)
+                else:
+                    step_reward = float(step_output.reward)
+                rollout_handler_ls[idx].step_rewards.append(step_reward)
+                rollout_handler_ls[idx].step_scores.append(new_score)
+                rollout_handler_ls[idx].step_valid_action_strings.append(valid_actions_before)
+                rollout_handler_ls[idx].step_parsed_actions.append(action)
+                rollout_handler_ls[idx].step_agent_actions.append(action)
+
+                is_valid_action = _matches_valid_action(action, valid_actions_before)
                 rollout_handler_ls[idx].step_valid_actions.append(is_valid_action)
+
+                step_idx = len(rollout_handler_ls[idx].step_rewards) - 1
+                rollout_handler_ls[idx].steps.append(
+                    {
+                        "step_idx": step_idx,
+                        "message_start_idx": message_start_idx,
+                        "assistant_message_idx": message_start_idx,
+                        "user_message_idx": message_start_idx + 1,
+                        "action": action,
+                        "reward": step_reward,
+                        "score": new_score,
+                        "done": done,
+                        "is_valid_action": is_valid_action,
+                        "valid_actions_before": valid_actions_before,
+                        "valid_actions": step_output.valid_actions,
+                    }
+                )
 
                 # Store successful experiences in memory bank when episode is done
                 if self.memory_enabled and rollout_handler_ls[idx].done:
@@ -314,7 +361,29 @@ class vLLMRollout(BaseRollout):
                 rollout_handler_ls[idx].done = True
                 rollout_handler_ls[idx].step_rewards.append(0.0)
                 rollout_handler_ls[idx].step_valid_actions.append(False)
-                LOGGER.info(f"Rollout step Error: {e} item id = {rollout_handler_ls[idx].item_id}")
+                rollout_handler_ls[idx].step_scores.append(0.0)
+                rollout_handler_ls[idx].step_valid_action_strings.append([])
+                rollout_handler_ls[idx].step_parsed_actions.append("")
+                rollout_handler_ls[idx].step_agent_actions.append("")
+                # rollout_handler_ls[idx].steps.append(
+                #     {
+                #         "step_idx": len(rollout_handler_ls[idx].step_rewards) - 1,
+                #         "message_start_idx": message_start_idx,
+                #         "assistant_message_idx": message_start_idx,
+                #         "raw_model_output": content,
+                #         "agent_action": "",
+                #         "parsed_action": "",
+                #         "env_action": "",
+                #         "reward": 0.0,
+                #         "score": 0.0,
+                #         "done": True,
+                #         "is_valid_action": False,
+                #         "valid_actions_before": prev_valid_actions_by_env[idx],
+                #         "valid_actions": [],
+                #         "error": str(e),
+                #     }
+                # )
+                raise RuntimeError(f"Rollout step Error: {e} item id = {rollout_handler_ls[idx].item_id}") from e
                 step_experiences[idx] = []  # Clear on error
                 return True
         while rounds < max_rounds and not all_done_flag:
@@ -443,6 +512,11 @@ class vLLMRollout(BaseRollout):
                             "reward": scores[idx],
                             "step_rewards": rollout_handler_ls[idx].step_rewards,
                             "step_valid_actions": rollout_handler_ls[idx].step_valid_actions,
+                            "step_scores": rollout_handler_ls[idx].step_scores,
+                            "step_valid_action_strings": rollout_handler_ls[idx].step_valid_action_strings,
+                            "step_parsed_actions": rollout_handler_ls[idx].step_parsed_actions,
+                            "step_agent_actions": rollout_handler_ls[idx].step_agent_actions,
+                            "steps": rollout_handler_ls[idx].steps,
                         }
                         json_msg.append(records)
                     json.dump(json_msg, f, ensure_ascii=True, indent=4)

@@ -1,6 +1,8 @@
+set -euo pipefail
 set -x
 
-exp_name="${MODEL_SIZE}_n8"
+# exp_name="${MODEL_SIZE}_n8"
+exp_name="${EXP_NAME}_$(date +%Y%m%d_%H%M%S)"
 export MODEL_SIZE="${MODEL_SIZE^^}"
 pure_agent_model_name="Qwen2.5-${MODEL_SIZE}-Instruct"
 
@@ -60,7 +62,7 @@ export env_server_url="http://localhost:${PORT}"
 # wandb login xxx
 
 
-agent_model_path="${HOME}/agentgym_rl/models/${pure_agent_model_name}"
+agent_model_path="${DIRPATH_PROJECT}/models/${pure_agent_model_name}"
 
 kl_coef=0.001
 policy_learning_rate=1e-6
@@ -117,9 +119,9 @@ HYDRA_FULL_ERROR=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True WANDB_MODE=o
     actor_rollout_ref.rollout.max_model_len=32768 \
     actor_rollout_ref.rollout.max_tokens=200 \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${tensor_model_parallel_size}" \
-    actor_rollout_ref.rollout.memory.enabled="${MEMORY_ENABLED:-false}" \
-    actor_rollout_ref.rollout.memory.k="${MEMORY_K:-0}" \
-    actor_rollout_ref.rollout.memory.min_reward="${MEMORY_MIN_REWARD:-999}" \
+    actor_rollout_ref.rollout.memory.enabled="${MEMORY_ENABLED}" \
+    actor_rollout_ref.rollout.memory.k="${MEMORY_K}" \
+    actor_rollout_ref.rollout.memory.min_reward="${MEMORY_MIN_REWARD}" \
     actor_rollout_ref.rollout.memory.save_path="${model_save_path}/memory_bank" \
     actor_rollout_ref.actor.ppo_epochs=${ppo_inner_epochs} \
     actor_rollout_ref.actor.optim.lr=${policy_learning_rate} \

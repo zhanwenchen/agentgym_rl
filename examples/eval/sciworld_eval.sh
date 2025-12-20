@@ -49,9 +49,9 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.max_model_len=32768 \
     rollout.max_tokens=200 \
     rollout.tensor_model_parallel_size=1 \
-    rollout.memory.enabled="${MEMORY_ENABLED:-false}" \
-    rollout.memory.k="${MEMORY_K:-0}" \
-    rollout.memory.min_reward="${MEMORY_MIN_REWARD:-999}" \
+    rollout.memory.enabled="${MEMORY_ENABLED}" \
+    rollout.memory.k="${MEMORY_K}" \
+    rollout.memory.min_reward="${MEMORY_MIN_REWARD}" \
     rollout.memory.save_path="${ckpt_path}/memory_bank" \
     rollout.rollout_log_dir="${ckpt_path}/executor_logs" \
     "$@"

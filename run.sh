@@ -31,6 +31,8 @@ cd vllm
 python use_existing_torch.py
 pip install --no-build-isolation .
 
+export HF_ENDPOINT="https://hf-mirror.com"
+
 HF_XET_HIGH_PERFORMANCE=1 hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir models/Qwen2.5-0.5B-Instruct
 HF_XET_HIGH_PERFORMANCE=1 hf download Qwen/Qwen2.5-1.5B-Instruct --local-dir models/Qwen2.5-1.5B-Instruct
 HF_XET_HIGH_PERFORMANCE=1 hf download Qwen/Qwen2.5-3B-Instruct --local-dir models/Qwen2.5-3B-Instruct
@@ -41,6 +43,14 @@ RAY_DEBUG=legacy bash examples/train/AgentGym-RL/sciworld_train.sh |& tee log_tr
 
 
 # og:
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/timezone
+sudo apt update
+sudo apt full-upgrade
+sudo apt install screen openjdk-17-jdk iproute2
+git clone git@github.com:zhanwenchen/agentgym_rl.git
+curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+bash Miniforge3-Linux-x86_64.sh
 echo "Preparing environment for agentgym-rl..."
 conda create -n agog python==3.10 -y
 conda activate agog
@@ -53,11 +63,23 @@ pip install $FLASH_ATTENTION_NAME
 rm -f $FLASH_ATTENTION_NAME
 # for RL
 pip install -e AgentGym-RL
+git clone git@github.com:zhanwenchen/AgentGym.git
 pip install -e AgentGym/agentenv
 pip install -e AgentGym/agentenv-sciworld
-pip install vllm==0.6.3 transformers==4.51.3 tokenizers huggingface_hub peft==0.17.1
+pip install vllm==0.6.3 transformers==4.51.3 tokenizers huggingface_hub peft==0.17.1 faiss-gpu-cu12 sentence_transformers click==8.0.1 weave --no-build-isolation
+wandb login #
+ll "${CONDA_PREFIX}/lib/python3.10/site-packages/vllm/"
+ll "${CONDA_PREFIX}/lib/python3.10/site-packages/vllm/version.py"
+
+
+# try:
+#     # from ._version import __version__, __version_tuple__
+#     __version__ = '0.6.3'
+#     __version_tuple__ = (0, 6, 3)
+# except Exception as e:
 
 # Use scratch for models
+
 export DIRPATH_SAVES_SCRATCH="/scratch/${USER}/agentgym_rl_AgentGym-RL_saves"
 mkdir -p "${DIRPATH_SAVES_SCRATCH}"
 ln -sf "${DIRPATH_SAVES_SCRATCH}" "${HOME}/agentgym_rl/AgentGym-RL/saves"

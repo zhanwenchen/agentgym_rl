@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
-from transformers import PreTrainedTokenizer
+from typing import Any, Literal, Optional
+from transformers import PreTrainedTokenizer # type: ignore
 import torch
 
 
@@ -67,6 +67,11 @@ class RolloutEpisode:
     # Step-level metrics
     step_rewards: list[float] = field(default_factory=list)
     step_valid_actions: list[bool] = field(default_factory=list)
+    step_scores: list[float] = field(default_factory=list)
+    step_valid_action_strings: list[list[str]] = field(default_factory=list)
+    step_parsed_actions: list[str] = field(default_factory=list)
+    step_agent_actions: list[str] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
 
     # Limits
     max_response_len: int = 8192
@@ -103,7 +108,7 @@ class RolloutEpisode:
             else:
                 conversations = memory_examples + current_conv
 
-        return tokenizer.apply_chat_template(conversations, add_generation_prompt=True, tokenize=True)
+        return tokenizer.apply_chat_template(conversations, add_generation_prompt=True, tokenize=True) # type: ignore
 
 
     def add_assistant_message(
