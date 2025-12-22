@@ -1,0 +1,109 @@
+trainer:
+  nnodes: 1
+  n_gpus_per_node: 1
+
+data:
+  path: null
+  max_prompt_length: 1024
+  max_response_length: 15360
+  prompt_key: item_id
+  n_samples: 1
+  output_path: null
+  batch_size: 16
+
+metrics:
+  # Some environments (notably SciWorld) may emit a sentinel episode score (e.g., -100)
+  # for trajectories that fail due to environment/runtime issues rather than task failure.
+  # When enabled, metrics that depend on episode score (e.g., Progress Rate) will exclude
+  # those invalid trajectories from aggregation.
+  ignore_invalid_trajectories: true
+  invalid_episode_score: -100.0
+  # If enabled, excludes negative progress-rate values from aggregation.
+  # This is NOT paper-faithful for all environments (some tasks may have legitimate negative rewards),
+  # but can be useful if your evaluation protocol treats any negative as an incomplete trajectory.
+  exclude_negative_progress_rate: true
+  # If enabled, clamps negative progress-rate values to 0 before aggregation.
+  # If both this and exclude_negative_progress_rate are enabled, clamping takes precedence.
+  clamp_negative_progress_rate_to_zero: false
+
+agentgym:
+    task_name: textcraft
+    env_addr: 'http://localhost:5000'
+    max_retries: 10
+    max_rounds: 10
+    timeout: 300
+
+model:
+  path: null
+  external_lib: null
+rollout:
+    name: vllm
+    temperature: 1.0
+    top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+    top_p: 1
+    prompt_length: ${data.max_prompt_length}  # not use for opensource
+    response_length: ${data.max_response_length}
+    # for vllm rollout
+    dtype: bfloat16 # should align with FSDP
+    gpu_memory_utilization: 0.5
+    ignore_eos: False
+    enforce_eager: True
+    free_cache_engine: True
+    load_format: dummy_dtensor
+    tensor_model_parallel_size: null
+    max_num_batched_tokens: 8192
+    max_model_len: 32768
+    max_num_seqs: 1024
+    log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
+    log_prob_micro_batch_size_per_gpu: 1
+    log_prob_use_dynamic_bsz: ${actor.use_dynamic_bsz}
+    log_prob_max_token_len_per_gpu: ${actor.ppo_max_token_len_per_gpu}
+    max_tokens: 1024
+    disable_log_stats: True
+    enable_chunked_prefill: True # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+    # for hf rollout
+    do_sample: True
+    # number of responses (i.e. num sample times)
+    n: 1 # > 1 for grpo
+    send_interval: 1
+    rollout_log_dir: null
+    # memory configuration for retrieval-based episodic memory
+    memory:
+      enabled: false  # set to true to enable memory bank
+      k: 3  # number of similar experiences to retrieve as few-shot examples
+      min_reward: 0.5  # minimum reward threshold for storing experiences (only successful experiences)
+      encoder: "sentence-transformers/all-MiniLM-L6-v2"  # sentence-transformer model for encoding observations
+      task_specific: true  # if true, only retrieve from same task; if false, enable cross-task retrieval
+      save_path: null  # path to save/load memory bank (e.g., "memory_bank/sciworld")
+
+
+actor:
+  strategy: fsdp  # This is for backward-compatibility
+  ppo_mini_batch_size: 16
+  ppo_micro_batch_size: null # will be deprecated, use ppo_micro_batch_size_per_gpu
+  ppo_micro_batch_size_per_gpu: 1
+  use_dynamic_bsz: False
+  ppo_max_token_len_per_gpu: 16384 # n * ${data.max_prompt_length} + ${data.max_response_length}
+  grad_clip: 1.0
+  clip_ratio: 0.2
+  entropy_coeff: 0.001
+  use_kl_loss: null # True for GRPO
+  kl_loss_coef: 0.001 # for grpo
+  kl_loss_type: low_var_kl # for grpo
+  ppo_epochs: 1
+  shuffle: False
+  ulysses_sequence_parallel_size: 1 # sp size
+  optim:
+    lr: 1e-6
+    lr_warmup_steps_ratio: 0.  # the total steps will be injected during runtime
+    min_lr_ratio: null   # only useful for warmup with cosine
+    warmup_style: constant  # select from constant/cosine
+    total_training_steps: -1  # must be override by program
+  fsdp_config:
+    wrap_policy:
+      # transformer_layer_cls_to_wrap: None
+      min_num_params: 0
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
+    fsdp_size: -1
