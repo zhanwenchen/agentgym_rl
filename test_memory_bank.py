@@ -7,6 +7,9 @@ This script demonstrates:
 3. Retrieving similar experiences
 4. Saving and loading the memory bank
 
+Dependencies:
+    pip install faiss-cpu torch sentence-transformers
+
 Run: python test_memory_bank.py
 """
 
