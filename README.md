@@ -1,4 +1,41 @@
 # AgentGym-RL: Training LLM Agents for Long-Horizon Decision Making through Multi-Turn Reinforcement Learning
+
+## ⚠️ Important Notice: Pipeline Refactoring
+
+**This repository has been refactored to remove verl and vllm dependencies.**
+
+### What Was Removed
+
+This refactoring removed the heavy RL training infrastructure to create a minimal pipeline:
+
+1. **Removed the verl framework** - The entire `AgentGym-RL/verl` directory containing:
+   - Ray-based distributed training components
+   - PPO, GRPO, RLOO, and other RL algorithms
+   - vLLM integration for rollouts
+   - FSDP and Megatron workers
+   - Complex training orchestration
+
+2. **Removed vllm dependencies** - All vllm integration code and dependencies
+
+3. **Removed training/evaluation scripts** - See `examples/SCRIPTS_REMOVED.md` for details
+
+### What Remains
+
+- **Core utilities** in `agentgym_rl_utils/` (e.g., memory bank)
+- **AgentGym environment** integration (in `AgentGym/` directory)
+- **Documentation** for reference
+- **Minimal dependencies** - Only numpy, pandas, transformers
+
+### For Full Training Pipeline
+
+If you need the complete RL training capabilities:
+- **Original verl**: https://github.com/volcengine/verl
+- **Historical versions**: Check git history before this refactoring
+
+---
+
+## Original Project Description
+
 <p align="center">
   📃 <a href="https://arxiv.org/abs/2509.08755" target="_blank">Paper</a > • 🌐 <a href="https://agentgym-rl.github.io/" target="_blank">Project Page</a > • 🤗 <a href="https://huggingface.co/datasets/AgentGym/AgentGym-RL-Data-ID" target="_blank">AgentGym-RL-Data-ID</a >
 </p >
@@ -87,7 +124,24 @@ ScalingInter-RL is a training approach designed to balance exploration and explo
 
 We start training with a smaller horizon, allowing the agent to efficiently exploits its policy and gain early proficiency on simple tasks. This establishes  the groundwork for deeper, long-horizon reasoning.  As training progresses, we gradually extend the horizon, enabling the agent to explore longer decision paths and fostering the emergence of higher-order cognitive behaviors.
 
-### Extending Verl
+### Pipeline Refactoring
+
+**Note:** This repository has been refactored to remove verl and vllm dependencies. The training pipeline has been minimized to focus on core utilities.
+
+**What was removed:**
+- The entire verl RL training framework
+- vllm integration and dependencies
+- Ray-based distributed training components
+- Complex RL algorithms (PPO, GRPO, RLOO, etc.)
+
+**What remains:**
+- Core utilities and dataset handling
+- Documentation for reference
+- AgentGym integration
+
+For the original full-featured version with complete RL training capabilities, please refer to the original verl repository.
+
+### Extending Verl (Historical Reference)
 
 We make following modifications to verl in order to develop AgentGym-RL:
 
