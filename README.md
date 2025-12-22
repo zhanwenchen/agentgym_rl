@@ -87,7 +87,24 @@ ScalingInter-RL is a training approach designed to balance exploration and explo
 
 We start training with a smaller horizon, allowing the agent to efficiently exploits its policy and gain early proficiency on simple tasks. This establishes  the groundwork for deeper, long-horizon reasoning.  As training progresses, we gradually extend the horizon, enabling the agent to explore longer decision paths and fostering the emergence of higher-order cognitive behaviors.
 
-### Extending Verl
+### Pipeline Refactoring
+
+**Note:** This repository has been refactored to remove verl and vllm dependencies. The training pipeline has been minimized to focus on core utilities.
+
+**What was removed:**
+- The entire verl RL training framework
+- vllm integration and dependencies
+- Ray-based distributed training components
+- Complex RL algorithms (PPO, GRPO, RLOO, etc.)
+
+**What remains:**
+- Core utilities and dataset handling
+- Documentation for reference
+- AgentGym integration
+
+For the original full-featured version with complete RL training capabilities, please refer to the original verl repository.
+
+### Extending Verl (Historical Reference)
 
 We make following modifications to verl in order to develop AgentGym-RL:
 

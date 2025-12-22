@@ -12,7 +12,7 @@ Run: python test_memory_bank.py
 
 import sys
 import os
-from verl.utils.memory import MemoryBank
+from agentgym_rl_utils.memory import MemoryBank
 
 # Add the AgentGym-RL directory to path
 # sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'AgentGym-RL'))
