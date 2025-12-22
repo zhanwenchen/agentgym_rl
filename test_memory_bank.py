@@ -7,15 +7,12 @@ This script demonstrates:
 3. Retrieving similar experiences
 4. Saving and loading the memory bank
 
-Dependencies:
-    pip install faiss-cpu torch sentence-transformers
-
 Run: python test_memory_bank.py
 """
 
 import sys
 import os
-from agentgym_rl_utils.memory import MemoryBank
+from verl.utils.memory import MemoryBank
 
 # Add the AgentGym-RL directory to path
 # sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'AgentGym-RL'))

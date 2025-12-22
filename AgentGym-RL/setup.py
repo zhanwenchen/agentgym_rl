@@ -18,40 +18,56 @@ import os
 
 version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
 
-# Use a default version since verl is being removed
-__version__ = '0.1.0'
+with open(os.path.join(version_folder, 'verl/version/version')) as f:
+    __version__ = f.read().strip()
 
 install_requires = [
+  'accelerate',
+  'codetiming',
+  'datasets',
+  'dill',
+  'hydra-core',
   'numpy',
   'pandas',
+  'peft',
+  'pyarrow>=15.0.0',
+  'pybind11',
+  'pylatexenc',
+  'ray>=2.10',
+  'tensordict<0.6',
   'transformers',
+  'vllm<=0.6.3',
+  'wandb',
 ]
 
-TEST_REQUIRES = ['pytest']
-GPU_REQUIRES = []
+TEST_REQUIRES = ['pytest', 'yapf', 'py-spy']
+PRIME_REQUIRES = ['pyext']
+GPU_REQUIRES = ['liger-kernel', 'flash-attn']
 
 extras_require = {
   'test': TEST_REQUIRES,
+  'prime': PRIME_REQUIRES,
   'gpu': GPU_REQUIRES,
 }
 
 from pathlib import Path
 this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text()
+long_description = (this_directory / "VERL_README.md").read_text()
 
 setup(
-    name='agentgym-rl',
+    name='verl',
     version=__version__,
     package_dir={'': '.'},
     packages=find_packages(where='.'),
-    url='https://github.com/zhanwenchen/agentgym_rl',
+    url='https://github.com/volcengine/verl',
     license='Apache 2.0',
-    author='AgentGym-RL Contributors',
-    author_email='',
-    description='AgentGym-RL: Minimal pipeline for agent training',
+    author='Bytedance - Seed - MLSys',
+    author_email='zhangchi.usc1992@bytedance.com, gmsheng@connect.hku.hk',
+    description='verl: Volcano Engine Reinforcement Learning for LLM',
     install_requires=install_requires,
     extras_require=extras_require,
-    package_data={'': ['version/*']},
+    package_data={'': ['version/*'],
+                  'verl': ['trainer/config/*.yaml'],},
     include_package_data=True,
     long_description=long_description,
     long_description_content_type='text/markdown'
