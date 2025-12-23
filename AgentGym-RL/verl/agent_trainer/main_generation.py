@@ -22,6 +22,7 @@ from pprint import pprint, pformat
 import ray
 import hydra
 import numpy as np
+from numpy import clip as np_clip
 from omegaconf import OmegaConf
 import pandas as pd
 from tqdm import tqdm
@@ -253,15 +254,9 @@ def main(config):
     category_success_bucket = defaultdict(list)
     category_grounding_bucket = defaultdict(list)
     category_progress_bucket = defaultdict(list)
-    for item_id, score, grounding, progress in tqdm(
-        zip(
-            item_ids,
-            output_lst,
-            grounding_accuracy_np.tolist(),
-            progress_rate_np.tolist(),
-        )
-    ):
-        logger.warning(f'{item_id = } {score = } ')
+    for item_id, score, grounding, progress in tqdm(zip(item_ids, output_lst, grounding_accuracy_np.tolist(), progress_rate_np.tolist())):
+        score_clamped = np_clip(score, a_min=0, a_max=None)
+        logger.warning(f'{item_id = }, {score = }, {score_clamped = }, {grounding = }, {progress = }')
         # try:
         category = category_map[item_id]
         # except KeyError as e:
@@ -269,7 +264,7 @@ def main(config):
         #     # continue
         #     category = category_map[item_id] = item_id.split('_')[0]
             # category_success_bucket[category] = [score]
-        category_success_bucket[category].append(score)
+        category_success_bucket[category].append(score_clamped)
         category_grounding_bucket[category].append(grounding)
         category_progress_bucket[category].append(progress)
     for category_file in category_files:
@@ -298,14 +293,9 @@ def main(config):
                     float(config.metrics.invalid_episode_score),
                     atol=1e-6,
                 )
-            if bool(config.metrics.exclude_negative_progress_rate) and not bool(
-                config.metrics.clamp_negative_progress_rate_to_zero
-            ):
+            if config.metrics.exclude_negative_progress_rate and not config.metrics.clamp_negative_progress_rate_to_zero:
                 valid_mask &= category_progress_raw >= 0.0
-            progress_rate_valid, excluded_count, total_count = _masked_mean(
-                values=category_progress_values,
-                mask=valid_mask,
-            )
+            progress_rate_valid, excluded_count, total_count = _masked_mean(values=category_progress_values, mask=valid_mask)
             parts = [f"excluded {excluded_count}/{total_count}"]
             if config.metrics.ignore_invalid_trajectories:
                 parts.append(f"episode_score=={float(config.metrics.invalid_episode_score):g}")
@@ -313,11 +303,7 @@ def main(config):
                 parts.append(f"clamped {clamped_count}/{total_count} progress_rate<0 to 0")
             elif config.metrics.exclude_negative_progress_rate:
                 parts.append("progress_rate<0")
-            print(
-                "Progress Rate: "
-                f"{progress_rate_valid:.4g} "
-                f"({' + '.join(parts)})"
-            )
+            print(f"Progress Rate: {progress_rate_valid:.4g} ({' + '.join(parts)})" )
         else:
             print(f"Progress Rate: {float(np.mean(category_progress)):.4g}")
 

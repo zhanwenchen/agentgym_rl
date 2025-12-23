@@ -16,7 +16,7 @@ sample_num=1
 max_rounds=30
 export batch_size=1
 export max_response_length=8192 # orginally 8192
-export gpu_memory_utilization=0.5 # originally 0.95
+export gpu_memory_utilization=0.70 # originally 0.95 # 0.5 works on most. 0.70 works on a800_80gb.
 
 # ckpt_path="global_step_150/actor"
 model_path=${ckpt_path}/huggingface
@@ -53,7 +53,7 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.memory.k="${MEMORY_K}" \
     rollout.memory.min_reward="${MEMORY_MIN_REWARD}" \
     rollout.memory.save_path="${ckpt_path}/memory_bank" \
-    rollout.rollout_log_dir="${ckpt_path}/executor_logs" \
+    rollout.rollout_log_dir="${ckpt_path}/executor_logs/$(date +%Y%m%d%H%M%S)" \
     "$@"
 
 status=$?

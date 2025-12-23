@@ -30,18 +30,18 @@ import json
 from logging import getLogger
 import os
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 from omegaconf import DictConfig
-from tensordict import TensorDict # type: ignore
+from tensordict import TensorDict
 import torch
 from torch import int32 as torch_int32
 import torch.distributed
 from torch.distributed import get_rank, get_world_size
 from torch.nn.utils.rnn import pad_sequence
 from torch import nn
-from tqdm import tqdm # type: ignore
+from tqdm import tqdm
 from vllm import SamplingParams
 from verl import DataProto
 from verl.third_party.vllm import LLM, vllm_version, parallel_state as vllm_ps
@@ -51,7 +51,6 @@ from verl.utils.agentgym.client import init_env_client
 from verl.utils.memory import MemoryBank
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.schemas import RolloutEpisode as RolloutHandler, Message, _pre_process_inputs
-from agentenv.envs.sciworld import SciworldEnvClient # type: ignore
 
 
 LOGGER = getLogger(__name__)
@@ -93,7 +92,7 @@ class vLLMRollout(BaseRollout):
             num_tp_per_train_tp = train_tp // tensor_parallel_size
             if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
                 vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                  num_tp_per_train_tp=num_tp_per_train_tp) # type: ignore
+                                                  num_tp_per_train_tp=num_tp_per_train_tp)
 
         self.inference_engine = LLM(
             actor_module,
@@ -111,7 +110,7 @@ class vLLMRollout(BaseRollout):
         )
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights() # type: ignore
+        self.inference_engine.offload_model_weights()
 
         kwargs = dict(
             n=1,
@@ -252,16 +251,11 @@ class vLLMRollout(BaseRollout):
         batch_size *= self.config.n
         rollout_handler_ls = self.preprocess_prompt_to_rollout_handler(prompts, n=self.config.n)
         env_clients = [init_env_client(self.agentgym_config) for _ in range(batch_size)]
-        prev_valid_actions_by_env: list[list[str]] = [[] for _ in range(batch_size)]
         time.sleep(self.config.send_interval) # take a break before sendng request
         all_done_flag = False
         for idx, rollout_handler in enumerate(rollout_handler_ls):
             try:
-                reset_response = env_clients[idx].reset(rollout_handler.item_id)
-                if isinstance(reset_response, dict) and "valid_actions" in reset_response:
-                    valid_actions = reset_response["valid_actions"]
-                    if isinstance(valid_actions, list):
-                        prev_valid_actions_by_env[idx] = [str(action) for action in valid_actions]
+                env_clients[idx].reset(rollout_handler.item_id)
                 task = env_clients[idx].observe()
                 rollout_handler.add_user_message(self.tokenizer, task)
             except TimeoutError:
@@ -276,16 +270,7 @@ class vLLMRollout(BaseRollout):
         # Track experiences for memory storage
         step_experiences: List[List[tuple]] = [[] for _ in range(batch_size)]  # Store (obs_text, action) for each agent
 
-        def _matches_valid_action(action: str, valid_actions: list[str]) -> bool:
-            for valid_action in valid_actions:
-                if action == valid_action:
-                    return True
-                if action.startswith(f"{valid_action} "):
-                    return True
-            return False
-
         def agent_step(i, idx):
-            message_start_idx = len(rollout_handler_ls[idx].messages)
             content = self.tokenizer.decode(response_ids[i], skip_special_tokens=True)
 
             # Store observation before action for memory
@@ -298,50 +283,18 @@ class vLLMRollout(BaseRollout):
             rollout_handler_ls[idx].add_assistant_message(self.tokenizer, content)
             task_rounds[idx] += 1
             try:
-                valid_actions_before = prev_valid_actions_by_env[idx]
                 step_output = env_clients[idx].step(content)
-                state = step_output.state
-                done = step_output.done
-                action = step_output.action
-
-                prev_valid_actions_by_env[idx] = [str(a) for a in step_output.valid_actions]
-
-                prev_score = rollout_handler_ls[idx].score
-                new_score = float(step_output.reward)
-                rollout_handler_ls[idx].score = new_score
-                rollout_handler_ls[idx].done = done
+                state, rollout_handler_ls[idx].score, rollout_handler_ls[idx].done = (
+                    step_output.state,
+                    step_output.reward,
+                    step_output.done,
+                )
                 rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
 
                 # Track step-level metrics
-                if isinstance(env_clients[idx], SciworldEnvClient):
-                    step_reward = new_score - float(prev_score)
-                else:
-                    step_reward = float(step_output.reward)
-                rollout_handler_ls[idx].step_rewards.append(step_reward)
-                rollout_handler_ls[idx].step_scores.append(new_score)
-                rollout_handler_ls[idx].step_valid_action_strings.append(valid_actions_before)
-                rollout_handler_ls[idx].step_parsed_actions.append(action)
-                rollout_handler_ls[idx].step_agent_actions.append(action)
-
-                is_valid_action = _matches_valid_action(action, valid_actions_before)
+                rollout_handler_ls[idx].step_rewards.append(step_output.reward)
+                is_valid_action = content in step_output.valid_actions
                 rollout_handler_ls[idx].step_valid_actions.append(is_valid_action)
-
-                step_idx = len(rollout_handler_ls[idx].step_rewards) - 1
-                rollout_handler_ls[idx].steps.append(
-                    {
-                        "step_idx": step_idx,
-                        "message_start_idx": message_start_idx,
-                        "assistant_message_idx": message_start_idx,
-                        "user_message_idx": message_start_idx + 1,
-                        "action": action,
-                        "reward": step_reward,
-                        "score": new_score,
-                        "done": done,
-                        "is_valid_action": is_valid_action,
-                        "valid_actions_before": valid_actions_before,
-                        "valid_actions": step_output.valid_actions,
-                    }
-                )
 
                 # Store successful experiences in memory bank when episode is done
                 if self.memory_enabled and rollout_handler_ls[idx].done:
@@ -465,6 +418,17 @@ class vLLMRollout(BaseRollout):
         LOGGER.info(f'vLLMRollout.generate_sequences: Completed processing {len(rollout_handler_ls)} rollout handlers.')
         # breakpoint()
 
+        score_change_record_list: list[list[tuple[int, float]]] = []
+        for episode_step_rewards in step_rewards_list:
+            last_reward = 0.0
+            score_change_record: list[tuple[int, float]] = []
+            for step_idx, reward in enumerate(episode_step_rewards):
+                reward_value = float(reward)
+                if reward_value > last_reward:
+                    score_change_record.append((step_idx, reward_value))
+                last_reward = reward_value
+            score_change_record_list.append(score_change_record)
+
         # pad to length
         response_ids = pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
         if response_ids.shape[1] < self.config.response_length:
@@ -496,7 +460,7 @@ class vLLMRollout(BaseRollout):
         reward_tensor = torch.zeros_like(response_ids, dtype=torch.float32) # (bs, response_length)
         valid_response_length = attention_mask[:, prompt_length:].sum(dim=-1)
         for i in range(len(scores)):
-            reward_tensor[i, valid_response_length[i].item() - 1] = scores[i]
+            reward_tensor[i, int(valid_response_length[i].item()) - 1] = scores[i]
         LOGGER.info(f'vLLMRollout.generate_sequences: Prepared final tensors for output.')
         # breakpoint() # here.
 
@@ -512,11 +476,7 @@ class vLLMRollout(BaseRollout):
                             "reward": scores[idx],
                             "step_rewards": rollout_handler_ls[idx].step_rewards,
                             "step_valid_actions": rollout_handler_ls[idx].step_valid_actions,
-                            "step_scores": rollout_handler_ls[idx].step_scores,
-                            "step_valid_action_strings": rollout_handler_ls[idx].step_valid_action_strings,
-                            "step_parsed_actions": rollout_handler_ls[idx].step_parsed_actions,
-                            "step_agent_actions": rollout_handler_ls[idx].step_agent_actions,
-                            "steps": rollout_handler_ls[idx].steps,
+                            "score_change_record": score_change_record_list[idx],
                         }
                         json_msg.append(records)
                     json.dump(json_msg, f, ensure_ascii=True, indent=4)
@@ -546,9 +506,14 @@ class vLLMRollout(BaseRollout):
         # Avoid division by zero
         valid_actions_ratio = valid_actions_per_episode / torch.clamp(total_steps_per_episode, min=1.0)
 
-        # Compute progress rate: episode score divided by steps taken
+        # Compute progress rate.
+        #
+        # For SciWorld in this repo, the env client returns `StepOutput.reward = response["score"]`,
+        # and that score is on a 0-100 scale. AgentBoard-style "progress rate" is a progress
+        # fraction in [0, 1], so we normalize SciWorld scores by 100.
         episode_scores = torch.tensor(scores, dtype=torch.float32, device=input_ids.device)
-        progress_rate = episode_scores / torch.clamp(total_steps_per_episode, min=1.0)
+        is_sciworld = str(self.agentgym_config.task_name).lower() == "sciworld"
+        progress_rate = episode_scores / 100.0 if is_sciworld else episode_scores
 
         batch = TensorDict(
             {
@@ -591,6 +556,7 @@ class vLLMRollout(BaseRollout):
         non_tensor_batch = {
             'step_rewards': np.array(step_rewards_list, dtype=object),
             'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
+            'score_change_record': np.array(score_change_record_list, dtype=object),
         }
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

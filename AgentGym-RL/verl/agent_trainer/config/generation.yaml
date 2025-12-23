@@ -16,15 +16,15 @@ metrics:
   # for trajectories that fail due to environment/runtime issues rather than task failure.
   # When enabled, metrics that depend on episode score (e.g., Progress Rate) will exclude
   # those invalid trajectories from aggregation.
-  ignore_invalid_trajectories: true
+  ignore_invalid_trajectories: false
   invalid_episode_score: -100.0
   # If enabled, excludes negative progress-rate values from aggregation.
   # This is NOT paper-faithful for all environments (some tasks may have legitimate negative rewards),
   # but can be useful if your evaluation protocol treats any negative as an incomplete trajectory.
-  exclude_negative_progress_rate: true
+  exclude_negative_progress_rate: false
   # If enabled, clamps negative progress-rate values to 0 before aggregation.
   # If both this and exclude_negative_progress_rate are enabled, clamping takes precedence.
-  clamp_negative_progress_rate_to_zero: false
+  clamp_negative_progress_rate_to_zero: true
 
 agentgym:
     task_name: textcraft

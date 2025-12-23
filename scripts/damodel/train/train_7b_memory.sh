@@ -1,109 +1,135 @@
 #!/bin/bash
-# Local Training Script for ScienceWorld with Memory (7B model)
-# Usage: bash scripts/local/train_7b_memory.sh
+# Local Evaluation Script for ScienceWorld
+# Usage: bash scripts/local/train_3b_memory.sh
 
-set -e  # Exit on error
+# Tee logging wrapper - redirect stdout and stderr to log file
+set -euo pipefail
+set -x
+
+export DIRPATH_PROJECT="${HOME}/workspace/agentgym_rl"
+export MODEL_SIZE="7b"
+export EXP_NAME="train_${MODEL_SIZE}_memory_$(date +%Y%m%d%H%M%S)"
+
+source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
+
 
 # ============================================================================
 # Configuration
 # ============================================================================
-export MODEL_SIZE="7b"
-export USE_MEMORY=true  # Set to false to disable memory
+export MEMORY_ENABLED=true  # Set to false to disable memory
+export MEMORY_K=3  # Set to false to disable memory
+export MEMORY_MIN_REWARD=0.5
 
-echo "=========================================="
-echo "ScienceWorld Training (Local)"
-echo "Model Size: ${MODEL_SIZE}"
-echo "Memory Enabled: ${USE_MEMORY}"
-echo "Start time: $(date)"
-echo "=========================================="
+# /home/zhanwen/agentgym_rl/AgentGym-RL/saves/0.5b_n8/global_step_25/actor
+source "${DIRPATH_PROJECT}/scripts/damodel/train/train_shared.sh"
 
-# ============================================================================
-# Setup Paths
-# ============================================================================
-export DIRPATH_PROJECT="${HOME}/agentgym_rl"
-cd "${DIRPATH_PROJECT}"
 
-# ============================================================================
-# Conda Environment
-# ============================================================================
-echo "Activating conda environment..."
-source ~/miniforge3/etc/profile.d/conda.sh  # Adjust if your conda is elsewhere
-conda activate agog  # Or your environment name
+# #!/bin/bash
+# # Local Training Script for ScienceWorld with Memory (7B model)
+# # Usage: bash scripts/local/train_7b_memory.sh
 
-# export PATH="${HOME}/miniforge3/bin/:${CONDA_PREFIX}/bin:${PATH}"
-# export PYTHONPATH="${DIRPATH_PROJECT}/AgentGym-RL:${DIRPATH_PROJECT}/AgentGym/agentenv:${DIRPATH_PROJECT}/AgentGym/agentenv-sciworld:${PYTHONPATH}"
-# export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}"
-export PYTHON_BIN="${CONDA_PREFIX}/bin/python"
-# export TMPDIR="${HOME}/tmp"
-# mkdir -p "${TMPDIR}"
+# set -e  # Exit on error
 
-echo "Python: $(which python)"
-echo "Python version: $(python --version)"
+# # ============================================================================
+# # Configuration
+# # ============================================================================
+# export MODEL_SIZE="7b"
+# export USE_MEMORY=true  # Set to false to disable memory
 
-# ============================================================================
-# Start ScienceWorld Server
-# ============================================================================
-# Find available port
-export PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
-echo "Starting sciworld server on port ${PORT}..."
-sciworld --host localhost --port "${PORT}" > /dev/null 2>&1 &
-export SERVER_PID=$!
-echo "Server PID: ${SERVER_PID}"
+# echo "=========================================="
+# echo "ScienceWorld Training (Local)"
+# echo "Model Size: ${MODEL_SIZE}"
+# echo "Memory Enabled: ${USE_MEMORY}"
+# echo "Start time: $(date)"
+# echo "=========================================="
 
-# Wait for server to be ready
-sleep 10
-echo "Server ready!"
+# # ============================================================================
+# # Setup Paths
+# # ============================================================================
+# export DIRPATH_PROJECT="${HOME}/agentgym_rl"
+# cd "${DIRPATH_PROJECT}"
 
-# ============================================================================
-# Cleanup function
-# ============================================================================
-cleanup() {
-    echo ""
-    echo "Cleaning up..."
-    echo "Killing server (PID: ${SERVER_PID})..."
-    kill ${SERVER_PID} 2>/dev/null || true
-    echo "Done!"
-}
-trap cleanup EXIT INT TERM
+# # ============================================================================
+# # Conda Environment
+# # ============================================================================
+# echo "Activating conda environment..."
+# source ~/miniforge3/etc/profile.d/conda.sh  # Adjust if your conda is elsewhere
+# conda activate agog  # Or your environment name
 
-# ============================================================================
-# Run Training
-# ============================================================================
-echo ""
-echo "Starting training..."
-echo "=========================================="
+# # export PATH="${HOME}/miniforge3/bin/:${CONDA_PREFIX}/bin:${PATH}"
+# # export PYTHONPATH="${DIRPATH_PROJECT}/AgentGym-RL:${DIRPATH_PROJECT}/AgentGym/agentenv:${DIRPATH_PROJECT}/AgentGym/agentenv-sciworld:${PYTHONPATH}"
+# # export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}"
+# export PYTHON_BIN="${CONDA_PREFIX}/bin/python"
+# # export TMPDIR="${HOME}/tmp"
+# # mkdir -p "${TMPDIR}"
 
-# Override environment variables for sciworld_train.sh
-export env_server_url="http://localhost:${PORT}"
+# echo "Python: $(which python)"
+# echo "Python version: $(python --version)"
 
-# Run training script with memory configuration
-cd AgentGym-RL
+# # ============================================================================
+# # Start ScienceWorld Server
+# # ============================================================================
+# # Find available port
+# export PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+# echo "Starting sciworld server on port ${PORT}..."
+# sciworld --host localhost --port "${PORT}" > /dev/null 2>&1 &
+# export SERVER_PID=$!
+# echo "Server PID: ${SERVER_PID}"
 
-if [ "${USE_MEMORY}" = true ]; then
-    echo "Memory bank: ENABLED"
-    HYDRA_FULL_ERROR=1 \
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-    WANDB_MODE=online \
-    bash ../examples/train/AgentGym-RL/sciworld_train.sh \
-        actor_rollout_ref.rollout.memory.enabled=true \
-        actor_rollout_ref.rollout.memory.k=3 \
-        actor_rollout_ref.rollout.memory.min_reward=0.5 \
-        actor_rollout_ref.rollout.memory.save_path="outputs/memory_bank/sciworld_${MODEL_SIZE}" 2>&1 | tee "../logs/train_${MODEL_SIZE}_memory_$(date +%Y%m%d_%H%M%S).log"
-else
-    echo "Memory bank: DISABLED"
-    HYDRA_FULL_ERROR=1 \
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-    WANDB_MODE=online \
-    bash ../examples/train/AgentGym-RL/sciworld_train.sh \
-        actor_rollout_ref.rollout.memory.enabled=false 2>&1 | tee "../logs/train_${MODEL_SIZE}_nomem_$(date +%Y%m%d_%H%M%S).log"
-fi
+# # Wait for server to be ready
+# sleep 10
+# echo "Server ready!"
 
-TRAIN_EXIT_CODE=$?
+# # ============================================================================
+# # Cleanup function
+# # ============================================================================
+# cleanup() {
+#     echo ""
+#     echo "Cleaning up..."
+#     echo "Killing server (PID: ${SERVER_PID})..."
+#     kill ${SERVER_PID} 2>/dev/null || true
+#     echo "Done!"
+# }
+# trap cleanup EXIT INT TERM
 
-echo ""
-echo "=========================================="
-echo "Training finished with exit code: ${TRAIN_EXIT_CODE}"
-echo "End time: $(date)"
-echo "=========================================="
+# # ============================================================================
+# # Run Training
+# # ============================================================================
+# echo ""
+# echo "Starting training..."
+# echo "=========================================="
 
-exit ${TRAIN_EXIT_CODE}
+# # Override environment variables for sciworld_train.sh
+# export env_server_url="http://localhost:${PORT}"
+
+# # Run training script with memory configuration
+# cd AgentGym-RL
+
+# if [ "${USE_MEMORY}" = true ]; then
+#     echo "Memory bank: ENABLED"
+#     HYDRA_FULL_ERROR=1 \
+#     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+#     WANDB_MODE=online \
+#     bash ../examples/train/AgentGym-RL/sciworld_train.sh \
+#         actor_rollout_ref.rollout.memory.enabled=true \
+#         actor_rollout_ref.rollout.memory.k=3 \
+#         actor_rollout_ref.rollout.memory.min_reward=0.5 \
+#         actor_rollout_ref.rollout.memory.save_path="outputs/memory_bank/sciworld_${MODEL_SIZE}" 2>&1 | tee "../logs/train_${MODEL_SIZE}_memory_$(date +%Y%m%d_%H%M%S).log"
+# else
+#     echo "Memory bank: DISABLED"
+#     HYDRA_FULL_ERROR=1 \
+#     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+#     WANDB_MODE=online \
+#     bash ../examples/train/AgentGym-RL/sciworld_train.sh \
+#         actor_rollout_ref.rollout.memory.enabled=false 2>&1 | tee "../logs/train_${MODEL_SIZE}_nomem_$(date +%Y%m%d_%H%M%S).log"
+# fi
+
+# TRAIN_EXIT_CODE=$?
+
+# echo ""
+# echo "=========================================="
+# echo "Training finished with exit code: ${TRAIN_EXIT_CODE}"
+# echo "End time: $(date)"
+# echo "=========================================="
+
+# exit ${TRAIN_EXIT_CODE}
