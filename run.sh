@@ -98,6 +98,9 @@ export CUDA_HOME="${CONDA_PREFIX}"
 # export DIRPATH_SAVES_SCRATCH="/scratch/${USER}/agentgym_rl_AgentGym-RL_saves"
 # mkdir -p "${DIRPATH_SAVES_SCRATCH}"
 # ln -sf "${DIRPATH_SAVES_SCRATCH}" "${HOME}/agentgym_rl/AgentGym-RL/saves"
+export DIRPATH_SAVES="${HOME}/shared-storage/agentgym_rl_AgentGym-RL_saves"
+mkdir -p "${DIRPATH_SAVES}"
+ln -sf "${DIRPATH_SAVES}" "${HOME}/workspace/agentgym_rl/AgentGym-RL/saves"
 
 
 # # Use scratch for saves

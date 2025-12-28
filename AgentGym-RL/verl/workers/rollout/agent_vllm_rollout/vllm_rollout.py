@@ -553,10 +553,11 @@ class vLLMRollout(BaseRollout):
         # breakpoint()
 
         # Build non-tensor batch for variable-length step metrics
-        non_tensor_batch = {
-            'step_rewards': np.array(step_rewards_list, dtype=object),
-            'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
-            'score_change_record': np.array(score_change_record_list, dtype=object),
-        }
+        # non_tensor_batch = {
+        #     'step_rewards': np.array(step_rewards_list, dtype=object),
+        #     'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
+        #     'score_change_record': np.array(score_change_record_list, dtype=object),
+        # }
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch)
+        # return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

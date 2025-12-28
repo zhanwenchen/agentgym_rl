@@ -9,6 +9,8 @@ set -ex  # Exit on error
 # ============================================================================
 export DIRPATH_PROJECT="${HOME}/workspace/agentgym_rl"
 export MODEL_SIZE="3b"
+export MEMORY_K=3
+export MEMORY_MIN_REWARD=0.5
 export MEMORY_ENABLED=true  # Set to false to disable memory
 export EXP_NAME="train_${MODEL_SIZE}_memory"
 

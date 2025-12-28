@@ -16,17 +16,18 @@ Implement base data transfer protocol between any two functions, modules.
 We can subclass Protocol to define more detailed batch info with specific keys
 """
 
+import copy
+from logging import getLogger, INFO
 import pickle
 import numpy as np
 import pandas as pd
-import copy
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Union
 
 import torch
 import tensordict
 from tensordict import TensorDict
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from verl.utils.py_functional import union_two_dict
 
@@ -36,6 +37,11 @@ try:
     tensordict.set_lazy_legacy(False).set()
 except:
     pass
+
+
+LOGGER = getLogger(__name__)
+LOGGER.setLevel(INFO)
+
 
 
 def pad_dataproto_to_divisor(data: 'DataProto', size_divisor: int):
@@ -542,10 +548,27 @@ class DataProto:
         for key, val in non_tensor_batch.items():
             # assert isinstance(val, val)
             # assert val.ndim == 2
+            assert isinstance(val, list)
             try:
                 non_tensor_batch[key] = np.concatenate(val, axis=0)
             except Exception as e:
-                raise ValueError(f'Failed to concat non tensor data with {key = }, {val.ndim = }  {val = }.') from e
+                parts: list[str] = []
+                for idx, item in enumerate(val):
+                    item_type = type(item)
+                    item_shape = getattr(item, 'shape', None)
+                    item_dtype = getattr(item, 'dtype', None)
+                    item_ndim = getattr(item, 'ndim', None)
+                    parts.append(
+                        f'[{idx}] type={item_type}, shape={item_shape}, ndim={item_ndim}, dtype={item_dtype}'
+                    )
+                details = '; '.join(parts)
+                LOGGER.warning(
+                    f'Failed to concat non tensor data with {key = }, {len(val) = }. Parts: {details}'
+                )
+                breakpoint()
+                raise ValueError(
+                    f'Failed to concat non tensor data with {key = }, {len(val) = }. Parts: {details}'
+                ) from e
 
         return DataProto(batch=new_batch, non_tensor_batch=non_tensor_batch, meta_info=data[0].meta_info)
 
