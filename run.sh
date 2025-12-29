@@ -1,5 +1,8 @@
 # run.sh
 
+# zip
+# zip -r agentgym_rl.zip agentgym_rl/ -x '*.git*' -x '*.safetensors'
+
 # System
 sudo apt update
 sudo apt full-upgrade
@@ -40,9 +43,11 @@ sudo chmod 0440 /etc/sudoers.d/zhanwen
 # sudo echo >> /etc/sudoers.d/zhanwen
 
 
+sudo su - zhanwen
 wget https://downloads.globus.org/globus-connect-personal/linux/stable/globusconnectpersonal-latest.tgz
 tar xzf globusconnectpersonal-latest.tgz
-cd /root/workspace/globusconnectpersonal-3.2.8/
+cd globusconnectpersonal-3.2.8/
+./globusconnectpersonal
 # sudo chmod +wx  /root/workspace/
 # sudo chmod 755 /root/
 # sudo chmod 755 -R /root/workspace/
@@ -50,12 +55,12 @@ cd /root/workspace/globusconnectpersonal-3.2.8/
 # sudo chmod a+w -R /root/workspace/
 # sudo apt install tk tcllib
 sudo mkdir -p "/home/zhanwen/.globusonline/lta/"
-sudo bash -c "echo '/root,0,1' > /home/zhanwen/.globusonline/lta/config-paths"
+echo '/root,0,1' >> ${HOME}/.globusonline/lta/config-paths
 sudo chown zhanwen /home/zhanwen/.globusonline/lta/config-paths
 ~/.globusonline/lta/config-paths # add line "/root,0,1"
 ./globusconnectpersonal -stop
 ./globusconnectpersonal -start &
-sudo -H -u zhanwen bash -c './globusconnectpersonal -start &' 
+# sudo -H -u zhanwen bash -c './globusconnectpersonal -start &' 
 
 
 
