@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from transformers import PreTrainedTokenizer # type: ignore
 import torch
 
@@ -11,14 +11,73 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+
+@dataclass
 class Message:
-    def __init__(self, role: str, content: str):
-        self.role = role
-        self.content = content
+    role: str
+    content: str
+
+    # Strict per-message attributes for logging/analysis (always serialized).
+    step_idx: int | None = None
+    kind: str | None = None
+    phase: str | None = None
+
+    raw_model_output: str | None = None
+    parsed_action: str | None = None
+    action: str | None = None
+
+    reward: float | None = None
+    done: bool | None = None
+
+    step_score: float | None = None
+    step_score_delta: float | None = None
+
+    is_valid_action: bool | None = None
+    valid_actions: list[str] = field(default_factory=list)
+
+    # Retrieval-augmented memory (strict fields; present on every message).
+    memory_used: bool = False
+    memory_query: str | None = None
+    memory_retrieved: list[dict[str, Any]] = field(default_factory=list)
+    memory_encoder: str | None = None
+    memory_task_specific: bool | None = None
+    memory_k: int | None = None
+
+
+    def to_chat_dict(self) -> dict[str, str]:
+        return {"role": self.role, "content": self.content}
+
+    def to_log_dict(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "content": self.content,
+            "step_idx": self.step_idx,
+            "kind": self.kind,
+            "phase": self.phase,
+            "raw_model_output": self.raw_model_output,
+            "parsed_action": self.parsed_action,
+            "action": self.action,
+            "reward": self.reward,
+            "done": self.done,
+            "step_score": self.step_score,
+            "step_score_delta": self.step_score_delta,
+            "is_valid_action": self.is_valid_action,
+            "valid_actions": self.valid_actions,
+            "memory_used": self.memory_used,
+            "memory_query": self.memory_query,
+            "memory_retrieved": self.memory_retrieved,
+            "memory_encoder": self.memory_encoder,
+            "memory_task_specific": self.memory_task_specific,
+            "memory_k": self.memory_k,
+        }
+
     def to_dict(self) -> dict[str, str]:
-        return {'role': self.role, 'content': self.content}
+        '''Backwards-compatible alias for chat-template dicts.'''
+        return self.to_chat_dict()
+
     def __repr__(self) -> str:
         return str(self.to_dict())
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -77,8 +136,8 @@ class RolloutEpisode:
     max_response_len: int = 8192
     max_model_len: int = 32768
 
-    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer, memory_examples: Optional[list[dict]] = None) -> list[int]:
-        """
+    def get_generation_prompt(self, tokenizer: PreTrainedTokenizer, memory_examples: list[dict] | None = None) -> list[int]:
+        '''
         Generate prompt with optional memory examples injected before current conversation.
 
         Args:
@@ -88,10 +147,8 @@ class RolloutEpisode:
 
         Returns:
             Tokenized prompt with memory examples prepended
-        """
-        conversations = [
-            msg.to_dict() for msg in self.messages
-        ]
+        '''
+        conversations = [msg.to_chat_dict() for msg in self.messages]
 
         # Inject memory examples before current conversation if provided
         if memory_examples and len(memory_examples) > 0:
@@ -116,8 +173,47 @@ class RolloutEpisode:
         tokenizer: PreTrainedTokenizer,
         content: str,
         format: Literal['qwen'] = 'qwen',
+        step_idx: int | None = None,
+        kind: str | None = None,
+        phase: str | None = None,
+        raw_model_output: str | None = None,
+        parsed_action: str | None = None,
+        action: str | None = None,
+        valid_actions: list[str] | None = None,
+        is_valid_action: bool | None = None,
+        reward: float | None = None,
+        done: bool | None = None,
+        step_score: float | None = None,
+        step_score_delta: float | None = None,
+        memory_used: bool = False,
+        memory_query: str | None = None,
+        memory_retrieved: list[dict[str, Any]] | None = None,
+        memory_encoder: str | None = None,
+        memory_task_specific: bool | None = None,
+        memory_k: int | None = None,
     ) -> None:
-        msg = Message(role='assistant', content=content)
+        msg = Message(
+            role='assistant',
+            content=content,
+            step_idx=step_idx,
+            kind=kind,
+            phase=phase,
+            raw_model_output=raw_model_output,
+            parsed_action=parsed_action,
+            action=action,
+            reward=reward,
+            done=done,
+            step_score=step_score,
+            step_score_delta=step_score_delta,
+            is_valid_action=is_valid_action,
+            valid_actions=[] if valid_actions is None else valid_actions,
+            memory_used=memory_used,
+            memory_query=memory_query,
+            memory_retrieved=[] if memory_retrieved is None else memory_retrieved,
+            memory_encoder=memory_encoder,
+            memory_task_specific=memory_task_specific,
+            memory_k=memory_k,
+        )
         self.messages.append(msg)
         assert format == 'qwen', f'format {format} not supported'
         prefix_msg = QWEN_FORMAT_CONFIG['assistant_prefix']
@@ -133,10 +229,7 @@ class RolloutEpisode:
             _loss_mask = [0] * len(prefix_token_ids) + [1] * len(response)
         else:
             max_len = max(len(prefix_token_ids), len(suffix_token_ids))
-            raise ValueError(
-                f"""Unsupported end of message format:
-                {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}"""
-            )
+            raise ValueError(f'Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}')
         append_token_ids += suffix_token_ids
         _loss_mask += [1] * len(suffix_token_ids)
         self.input_ids += append_token_ids
@@ -147,16 +240,54 @@ class RolloutEpisode:
         _position_ids = [pos_id + last_position_ids for pos_id in _delta_position_ids]
         self.loss_mask += _loss_mask
         self.position_ids += _position_ids
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Rollout Handler has different length of {len(self.input_ids)=},
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f'Rollout Handler has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}'
 
     def add_user_message(
         self,
         tokenizer: PreTrainedTokenizer,
         content: str,
         format: Literal['qwen'] = 'qwen',
+        step_idx: int | None = None,
+        kind: str | None = None,
+        phase: str | None = None,
+        raw_model_output: str | None = None,
+        parsed_action: str | None = None,
+        action: str | None = None,
+        valid_actions: list[str] | None = None,
+        is_valid_action: bool | None = None,
+        reward: float | None = None,
+        done: bool | None = None,
+        step_score: float | None = None,
+        step_score_delta: float | None = None,
+        memory_used: bool = False,
+        memory_query: str | None = None,
+        memory_retrieved: list[dict[str, Any]] | None = None,
+        memory_encoder: str | None = None,
+        memory_task_specific: bool | None = None,
+        memory_k: int | None = None,
     ) -> None:
-        msg = Message(role='user', content=content)
+        msg = Message(
+            role='user',
+            content=content,
+            step_idx=step_idx,
+            kind=kind,
+            phase=phase,
+            raw_model_output=raw_model_output,
+            parsed_action=parsed_action,
+            action=action,
+            valid_actions=[] if valid_actions is None else valid_actions,
+            is_valid_action=is_valid_action,
+            reward=reward,
+            done=done,
+            step_score=step_score,
+            step_score_delta=step_score_delta,
+            memory_used=memory_used,
+            memory_query=memory_query,
+            memory_retrieved=[] if memory_retrieved is None else memory_retrieved,
+            memory_encoder=memory_encoder,
+            memory_task_specific=memory_task_specific,
+            memory_k=memory_k,
+        )
         self.messages.append(msg)
         assert format == 'qwen', f'format {format} not supported'
         prefix_msg = QWEN_FORMAT_CONFIG['user_prefix']
@@ -173,10 +304,7 @@ class RolloutEpisode:
             _loss_mask = [0] * len(prefix_token_ids) + [0] * len(content_token_ids)
         else:
             max_len = max(len(prefix_token_ids), len(suffix_token_ids))
-            raise ValueError(
-                f"""Unsupported end of message format:
-                {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}"""
-            )
+            raise ValueError(f'Unsupported end of message format: {tokenizer.decode(self.input_ids[-max_len:])}, {tokenizer.decode(self.input_ids)=}')
 
         append_token_ids += suffix_token_ids
         _loss_mask += [0] * len(suffix_token_ids)
@@ -188,8 +316,7 @@ class RolloutEpisode:
         _position_ids = [pos_id + last_position_ids for pos_id in _delta_position_ids]
         self.loss_mask += _loss_mask
         self.position_ids += _position_ids
-        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f"""Rollout Handler has different length of {len(self.input_ids)=},
-            {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}"""
+        assert len(self.input_ids) == len(self.attention_mask) == len(self.position_ids) == len(self.loss_mask), f'Rollout Handler has different length of {len(self.input_ids)=}, {len(self.attention_mask)=}, {len(self.position_ids)=}, {len(self.loss_mask)=}'
 
     def truncate_output_ids(self) -> None:
         self.input_ids = self.input_ids[: self.max_model_len]

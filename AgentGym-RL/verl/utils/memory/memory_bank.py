@@ -13,7 +13,8 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 from sentence_transformers import SentenceTransformer
-from transformers import PreTrainedTokenizer
+from typing import cast
+from transformers import PreTrainedTokenizer  # type: ignore
 
 
 @dataclass
@@ -145,68 +146,74 @@ class MemoryBank:
         k: int, # 3
         task_name: str | None,
     ) -> list[Experience]:
-        '''
-        Retrieve top-k similar experiences for a query observation.
+        """Retrieve top-k similar experiences for a query observation.
 
         Args:
-            query_text: Query observation text
-            k: Number of experiences to retrieve
-            task_name: Task name for filtering (required if task_specific=True)
+            query_text: Query observation text.
+            k: Number of experiences to retrieve.
+            task_name: Task name for filtering (required if task_specific=True).
 
         Returns:
-            List of top-k most similar experiences, sorted by similarity (most similar first)
-        '''
-        if len(self.experiences) == 0:
-            return []
+            List of top-k most similar experiences, sorted by similarity (most similar first).
+        """
+        experiences, _ = self.retrieve_with_distances(query_text=query_text, k=k, task_name=task_name)
+        return experiences
 
-        # Handle task-specific retrieval
+    def retrieve_with_distances(
+        self,
+        query_text: str,
+        k: int,
+        task_name: str | None,
+    ) -> tuple[list[Experience], list[float]]:
+        """Retrieve top-k experiences with FAISS L2 distances.
+
+        Distances are L2 distances in embedding space (smaller means more similar).
+
+        Args:
+            query_text: Query observation text.
+            k: Number of experiences to retrieve.
+            task_name: Task name for filtering (required if task_specific=True).
+
+        Returns:
+            A tuple of (experiences, distances), aligned by index.
+        """
+        if len(self.experiences) == 0:
+            return [], []
+
         if self.task_specific:
             if task_name is None:
                 raise ValueError("task_name required for task-specific retrieval")
-
-            # Get indices for this task
             valid_indices = self.task_indices.get(task_name, [])
             if len(valid_indices) == 0:
-                return []
-
-            # Limit k to available experiences
+                return [], []
             k = min(k, len(valid_indices))
         else:
             valid_indices = list(range(len(self.experiences)))
             k = min(k, len(valid_indices))
 
-        # Encode query
         query_embedding = self.encode([query_text])[0].reshape(1, -1)
 
         if self.task_specific and len(valid_indices) < len(self.experiences):
-            # Need to search among filtered experiences
-            # Build temporary index for this task
-            task_embeddings_list = [
-                self.experiences[idx].obs_embedding for idx in valid_indices
-            ]
-            # Filter out None values (should not happen, but for type safety)
+            task_embeddings_list = [self.experiences[idx].obs_embedding for idx in valid_indices]
             task_embeddings_list = [e for e in task_embeddings_list if e is not None]
             task_embeddings = np.vstack(task_embeddings_list)
             temp_index = faiss.IndexFlatL2(self.embedding_dim)
             temp_index.add(task_embeddings)
 
-            # Search
-            _, indices = temp_index.search(query_embedding, k)
-
-            # Map back to global indices
+            distances, indices = temp_index.search(query_embedding, k)
             retrieved_indices = [valid_indices[idx] for idx in indices[0]]
+            retrieved_distances = distances[0].tolist()
         else:
-            # Search full index
             distances, indices = self.index.search(query_embedding, k)
             retrieved_indices = indices[0].tolist()
+            retrieved_distances = distances[0].tolist()
 
-        # Return experiences
-        return [self.experiences[idx] for idx in retrieved_indices]
+        return [self.experiences[idx] for idx in retrieved_indices], [float(d) for d in retrieved_distances]
 
     def format_as_examples(
         self,
         experiences: list[Experience],
-        tokenizer: PreTrainedTokenizer = None,
+        tokenizer: PreTrainedTokenizer | None = None,
         format_style: str = "chat",
     ) -> list[dict]:
         '''
@@ -284,11 +291,23 @@ class MemoryBank:
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         memory_bank = cls(
             encoder_name=state['encoder_name'],
-            embedding_dim=state['embedding_dim'],
             device=device,
             min_reward=state['min_reward'],
             task_specific=state['task_specific'],
         )
+        embedding_dim = memory_bank.embedding_dim
+        if embedding_dim is None:
+            raise ValueError(
+                f"Encoder '{memory_bank.encoder_name}' did not report an embedding dimension"
+            )
+
+        embedding_dim_int = cast(int, embedding_dim)
+        state_embedding_dim = int(state['embedding_dim'])
+        if embedding_dim_int != state_embedding_dim:
+            raise ValueError(
+                f"Loaded embedding_dim={state['embedding_dim']} but encoder '{memory_bank.encoder_name}' "
+                f"produced embedding_dim={memory_bank.embedding_dim}"
+            )
 
         # Load FAISS index
         memory_bank.index = faiss.read_index(str(load_path_obj.with_suffix('.faiss')))

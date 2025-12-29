@@ -56,6 +56,31 @@ from verl.workers.rollout.schemas import RolloutEpisode as RolloutHandler, Messa
 LOGGER = getLogger(__name__)
 
 
+def _extract_action_from_model_output(model_output: str) -> str:
+    """Extract the env action string from a Thought/Action formatted model output.
+
+    Args:
+        model_output: Raw decoded model output.
+
+    Returns:
+        A best-effort action string. If no explicit "Action:" section is found,
+        returns the stripped original output.
+    """
+    text = str(model_output).strip()
+    if not text:
+        return ""
+
+    marker = "Action:"
+    if marker not in text:
+        return text
+
+    # Take the last Action: block to be robust to few-shot examples.
+    after = text.rsplit(marker, 1)[-1].strip()
+    if not after:
+        return ""
+    return after.splitlines()[0].strip()
+
+
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -157,7 +182,10 @@ class vLLMRollout(BaseRollout):
             # Load existing memory bank if path provided
             if self.memory_save_path and os.path.exists(self.memory_save_path + '.pkl'):
                 try:
-                    self.memory_bank = MemoryBank.load(self.memory_save_path)
+                    self.memory_bank = MemoryBank.load(
+                        self.memory_save_path,
+                        device='cuda' if torch.cuda.is_available() else 'cpu',
+                    )
                     LOGGER.info(f"Loaded memory bank from {self.memory_save_path} with {len(self.memory_bank)} experiences")
                 except Exception as e:
                     LOGGER.warning(f"Failed to load memory bank from {self.memory_save_path}: {e}")
@@ -257,7 +285,13 @@ class vLLMRollout(BaseRollout):
             try:
                 env_clients[idx].reset(rollout_handler.item_id)
                 task = env_clients[idx].observe()
-                rollout_handler.add_user_message(self.tokenizer, task)
+                rollout_handler.add_user_message(
+                    self.tokenizer,
+                    task,
+                    step_idx=-1,
+                    kind="observation",
+                    phase="reset",
+                )
             except TimeoutError:
                 LOGGER.info(f"Reset Timeout: Webarena Env Timeout. item id = {rollout_handler.item_id}")
                 rollout_handler.done = True
@@ -272,6 +306,10 @@ class vLLMRollout(BaseRollout):
 
         def agent_step(i, idx):
             content = self.tokenizer.decode(response_ids[i], skip_special_tokens=True)
+            step_idx = len(rollout_handler_ls[idx].step_rewards)
+            parsed_action = _extract_action_from_model_output(content)
+
+            valid_actions_before = list(env_clients[idx].info["valid_actions"])
 
             # Store observation before action for memory
             if self.memory_enabled and len(rollout_handler_ls[idx].messages) > 0:
@@ -280,7 +318,23 @@ class vLLMRollout(BaseRollout):
                     obs_text = last_msg.content
                     step_experiences[idx].append((obs_text, content))
 
-            rollout_handler_ls[idx].add_assistant_message(self.tokenizer, content)
+            rollout_handler_ls[idx].add_assistant_message(
+                self.tokenizer,
+                content,
+                step_idx=step_idx,
+                kind="action",
+                phase="pre_step",
+                raw_model_output=content,
+                parsed_action=parsed_action,
+                action=parsed_action,
+                valid_actions=valid_actions_before,
+                memory_used=memory_context_by_env_idx[idx]["memory_used"],
+                memory_query=memory_context_by_env_idx[idx]["memory_query"],
+                memory_retrieved=memory_context_by_env_idx[idx]["memory_retrieved"],
+                memory_encoder=memory_context_by_env_idx[idx]["memory_encoder"],
+                memory_task_specific=memory_context_by_env_idx[idx]["memory_task_specific"],
+                memory_k=memory_context_by_env_idx[idx]["memory_k"],
+            )
             task_rounds[idx] += 1
             try:
                 step_output = env_clients[idx].step(content)
@@ -289,15 +343,48 @@ class vLLMRollout(BaseRollout):
                     step_output.reward,
                     step_output.done,
                 )
-                rollout_handler_ls[idx].add_user_message(self.tokenizer, state)
+                env_action = str(step_output.action)
+
+                prev_step_score = 0.0
+                if len(rollout_handler_ls[idx].step_scores) > 0:
+                    prev_step_score = float(rollout_handler_ls[idx].step_scores[-1])
+                step_score = float(step_output.reward)
+                step_score_delta = step_score - prev_step_score
+                rollout_handler_ls[idx].add_user_message(
+                    self.tokenizer,
+                    state,
+                    step_idx=step_idx,
+                    kind="observation",
+                    phase="post_step",
+                    reward=step_output.reward,
+                    done=step_output.done,
+                    step_score=step_score,
+                    step_score_delta=step_score_delta,
+                )
 
                 # Track step-level metrics
                 rollout_handler_ls[idx].step_rewards.append(step_output.reward)
-                is_valid_action = content in step_output.valid_actions
+                is_valid_action = env_action in valid_actions_before
                 rollout_handler_ls[idx].step_valid_actions.append(is_valid_action)
+                rollout_handler_ls[idx].step_scores.append(step_output.reward)
+                rollout_handler_ls[idx].step_valid_action_strings.append(valid_actions_before)
+                rollout_handler_ls[idx].step_agent_actions.append(content)
+                rollout_handler_ls[idx].step_parsed_actions.append(env_action)
+
+                # Enrich the assistant message with post-step info (valid actions, validity).
+                if len(rollout_handler_ls[idx].messages) >= 2:
+                    last_msg = rollout_handler_ls[idx].messages[-2]
+                    if last_msg.role == "assistant":
+                        last_msg.is_valid_action = is_valid_action
+                        last_msg.valid_actions = valid_actions_before
+                        last_msg.reward = float(step_output.reward)
+                        last_msg.done = bool(step_output.done)
+                        last_msg.action = env_action
+                        last_msg.step_score = step_score
+                        last_msg.step_score_delta = step_score_delta
 
                 # Store successful experiences in memory bank when episode is done
-                if self.memory_enabled and rollout_handler_ls[idx].done:
+                if self.memory_enabled and self.memory_bank is not None and rollout_handler_ls[idx].done:
                     for obs_text, action in step_experiences[idx]:
                         self.memory_bank.add(
                             obs_text=obs_text,
@@ -343,25 +430,57 @@ class vLLMRollout(BaseRollout):
             # get generation prompt with memory retrieval
             generation_prompt_idxs = []
             not_done_idxs = []
+            memory_context_by_env_idx: list[dict[str, Any]] = [
+                {
+                    "memory_used": False,
+                    "memory_query": None,
+                    "memory_retrieved": [],
+                    "memory_encoder": None,
+                    "memory_task_specific": None,
+                    "memory_k": None,
+                }
+                for _ in range(batch_size)
+            ]
             for idx, rollout_handler in enumerate(rollout_handler_ls):
                 if not rollout_handler.done:
                     # Retrieve similar experiences from memory if enabled
                     memory_examples = None
+                    memory_ctx = memory_context_by_env_idx[idx]
                     if self.memory_enabled and self.memory_bank is not None:
+                        memory_ctx["memory_encoder"] = self.memory_bank.encoder_name
+                        memory_ctx["memory_task_specific"] = bool(self.memory_task_specific)
+                        memory_ctx["memory_k"] = int(self.memory_k)
+
                         # Get current observation (last user message)
-                        if len(rollout_handler.messages) > 0 and rollout_handler.messages[-1].role == 'user':
+                        if len(rollout_handler.messages) > 0 and rollout_handler.messages[-1].role == "user":
                             current_obs = rollout_handler.messages[-1].content
+                            memory_ctx["memory_query"] = current_obs
                             try:
-                                retrieved_exps = self.memory_bank.retrieve(
+                                retrieved_exps, retrieved_distances = self.memory_bank.retrieve_with_distances(
                                     query_text=current_obs,
                                     k=self.memory_k,
                                     task_name=rollout_handler.task_name if self.memory_task_specific else None,
                                 )
-                                if retrieved_exps:
+                                if len(retrieved_exps) > 0:
+                                    memory_ctx["memory_used"] = True
+                                    memory_ctx["memory_retrieved"] = [
+                                        {
+                                            "rank": rank,
+                                            "l2_distance": float(dist),
+                                            "item_id": int(exp.item_id),
+                                            "task_name": str(exp.task_name),
+                                            "reward": float(exp.reward),
+                                            "obs_text": str(exp.obs_text),
+                                            "action": str(exp.action),
+                                        }
+                                        for rank, (exp, dist) in enumerate(
+                                            zip(retrieved_exps, retrieved_distances)
+                                        )
+                                    ]
                                     memory_examples = self.memory_bank.format_as_examples(
                                         retrieved_exps,
                                         self.tokenizer,
-                                        format_style='chat',
+                                        format_style="chat",
                                     )
                             except Exception as e:
                                 LOGGER.warning(f"Memory retrieval failed: {e}")
@@ -472,10 +591,14 @@ class vLLMRollout(BaseRollout):
                     for idx, msgs in enumerate(messages):
                         records = {
                             "item_id": rollout_handler_ls[idx].item_id,
-                            "conversations": [msg.to_dict() for msg in msgs],
+                            "conversations": [msg.to_log_dict() for msg in msgs],
                             "reward": scores[idx],
                             "step_rewards": rollout_handler_ls[idx].step_rewards,
                             "step_valid_actions": rollout_handler_ls[idx].step_valid_actions,
+                            "step_valid_action_strings": rollout_handler_ls[idx].step_valid_action_strings,
+                            "step_agent_actions": rollout_handler_ls[idx].step_agent_actions,
+                            "step_parsed_actions": rollout_handler_ls[idx].step_parsed_actions,
+                            "step_scores": rollout_handler_ls[idx].step_scores,
                             "score_change_record": score_change_record_list[idx],
                         }
                         json_msg.append(records)
@@ -553,11 +676,10 @@ class vLLMRollout(BaseRollout):
         # breakpoint()
 
         # Build non-tensor batch for variable-length step metrics
-        # non_tensor_batch = {
-        #     'step_rewards': np.array(step_rewards_list, dtype=object),
-        #     'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
-        #     'score_change_record': np.array(score_change_record_list, dtype=object),
-        # }
+        non_tensor_batch = {
+            'step_rewards': np.array(step_rewards_list, dtype=object),
+            'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
+            'score_change_record': np.array(score_change_record_list, dtype=object),
+        }
 
-        return DataProto(batch=batch)
-        # return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)

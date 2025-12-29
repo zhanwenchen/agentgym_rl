@@ -43,7 +43,7 @@ sudo chmod 0440 /etc/sudoers.d/zhanwen
 # sudo echo >> /etc/sudoers.d/zhanwen
 
 
-sudo su - zhanwen # need to download as 
+sudo su - zhanwen # need to download as
 wget https://downloads.globus.org/globus-connect-personal/linux/stable/globusconnectpersonal-latest.tgz
 tar xzf globusconnectpersonal-latest.tgz
 cd globusconnectpersonal-3.2.8/
@@ -57,7 +57,7 @@ exit
 # sudo chown zhanwen /home/zhanwen/.globusonline/lta/config-paths
 # ~/.globusonline/lta/config-paths # add line "/root,0,1"
 # ./globusconnectpersonal -stop
-# sudo -H -u zhanwen bash -c './globusconnectpersonal -start &' 
+# sudo -H -u zhanwen bash -c './globusconnectpersonal -start &'
 
 ssh-keygen
 cat ~/.ssh/id_rsa.pub  # add to github
