@@ -51,6 +51,7 @@ cd globusconnectpersonal-3.2.8/
 ./globusconnectpersonal -start &
 echo '/root,0,1' >> ${HOME}/.globusonline/lta/config-paths
 sudo chmod o+x,o+r /root
+sudo chmod o+x,o+r,o+w -R /root/workspace/agentgym_rl
 exit
 # sudo mkdir -p "/home/zhanwen/.globusonline/lta/"
 # sudo chown zhanwen /home/zhanwen/.globusonline/lta/config-paths
