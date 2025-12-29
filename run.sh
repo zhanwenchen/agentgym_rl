@@ -50,6 +50,7 @@ cd globusconnectpersonal-3.2.8/
 # ./globusconnectpersonal
 ./globusconnectpersonal -start &
 echo '/root,0,1' >> ${HOME}/.globusonline/lta/config-paths
+sudo chmod o+x,o+r /root
 exit
 # sudo mkdir -p "/home/zhanwen/.globusonline/lta/"
 # sudo chown zhanwen /home/zhanwen/.globusonline/lta/config-paths
@@ -118,6 +119,11 @@ hf download Qwen/Qwen2.5-3B-Instruct --local-dir models/Qwen2.5-3B-Instruct
 hf download Qwen/Qwen2.5-7B-Instruct --local-dir models/Qwen2.5-7B-Instruct
 
 # export CUDA_HOME="${CONDA_PREFIX}"
+
+# # use shared-storage for models
+# export DIRPATH_SAVES="${HOME}/shared-storage/agentgym_rl_AgentGym-RL_saves"
+# mkdir -p "${DIRPATH_SAVES}"
+# ln -sf "${DIRPATH_SAVES}" "${HOME}/workspace/agentgym_rl/AgentGym-RL/saves"
 
 # Use scratch for models
 
