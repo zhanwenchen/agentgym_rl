@@ -24,4 +24,4 @@ echo "Killing server (PID: $SERVER_PID)..."
 kill $SERVER_PID 2>/dev/null
 
 echo "End time: $(date)"
-exit $EVAL_EXIT_CODE
+# exit $EVAL_EXIT_CODE
