@@ -29,6 +29,7 @@ def test_basic_functionality() -> MemoryBank:
     print("\n1. Creating memory bank...")
     memory_bank = MemoryBank(
         encoder_name="sentence-transformers/all-MiniLM-L6-v2",
+        distance_metric='cosine',
         device="cpu",  # Use CPU for testing
         min_reward=0.5,
         task_specific=True,
@@ -85,6 +86,7 @@ def test_chat_formatting():
 
     memory_bank = MemoryBank(
         encoder_name="sentence-transformers/all-MiniLM-L6-v2",
+        distance_metric='cosine',
         device="cpu",
         min_reward=0.5,
         task_specific=True,
@@ -128,6 +130,7 @@ def test_save_load():
         print("\n1. Creating and populating memory bank...")
         memory_bank = MemoryBank(
             encoder_name="sentence-transformers/all-MiniLM-L6-v2",
+            distance_metric='cosine',
             device="cpu",
             min_reward=0.5,
             task_specific=True,
@@ -170,6 +173,7 @@ def test_cross_task_retrieval():
     # Create memory bank with cross-task retrieval enabled
     memory_bank = MemoryBank(
         encoder_name="sentence-transformers/all-MiniLM-L6-v2",
+        distance_metric='cosine',
         device="cpu",
         min_reward=0.5,
         task_specific=False,  # Enable cross-task

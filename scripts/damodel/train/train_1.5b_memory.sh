@@ -9,6 +9,7 @@ set -ex  # Exit on error
 # ============================================================================
 export MODEL_SIZE="1.5b"
 export USE_MEMORY=true  # Set to false to disable memory
+export MEMORY_DISTANCE_METRIC='l2'
 
 echo "=========================================="
 echo "ScienceWorld Training (Local)"
@@ -79,6 +80,7 @@ if [ "${USE_MEMORY}" = true ]; then
         actor_rollout_ref.rollout.memory.enabled=true \
         actor_rollout_ref.rollout.memory.k=3 \
         actor_rollout_ref.rollout.memory.min_reward=0.5 \
+        actor_rollout_ref.rollout.memory.distance_metric="${MEMORY_DISTANCE_METRIC}" \
         actor_rollout_ref.rollout.memory.save_path="outputs/memory_bank/sciworld_${MODEL_SIZE}" 2>&1 | tee "../logs/train_${MODEL_SIZE}_memory_$(date +%Y%m%d_%H%M%S).log"
 else
     echo "Memory bank: DISABLED"

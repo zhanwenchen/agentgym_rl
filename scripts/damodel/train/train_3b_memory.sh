@@ -9,10 +9,11 @@ set -ex  # Exit on error
 # ============================================================================
 export DIRPATH_PROJECT="${HOME}/workspace/agentgym_rl"
 export MODEL_SIZE="3b"
+export MEMORY_ENABLED=true  # Set to false to disable memory
 export MEMORY_K=3
 export MEMORY_MIN_REWARD=0.5
-export MEMORY_ENABLED=true  # Set to false to disable memory
-export EXP_NAME="train_${MODEL_SIZE}_memory"
+export MEMORY_DISTANCE_METRIC='l2'
+export EXP_NAME="train_${MODEL_SIZE}_memory_k${MEMORY_K}_minreward${MEMORY_MIN_REWARD}_metric${MEMORY_DISTANCE_METRIC}_$(date +%Y%m%d_%H%M%S)"
 
 source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
 
