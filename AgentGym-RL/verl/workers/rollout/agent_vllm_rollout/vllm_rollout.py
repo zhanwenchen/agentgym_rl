@@ -168,12 +168,14 @@ class vLLMRollout(BaseRollout):
             self.memory_k = memory_k = memory_config.k
             self.memory_min_reward = memory_min_reward = memory_config.get('min_reward', 0.5)
             self.memory_encoder = memory_encoder = memory_config.get('encoder', 'sentence-transformers/all-MiniLM-L6-v2')
+            self.memory_distance_metric = memory_distance_metric = memory_config.distance_metric
             self.memory_task_specific = memory_task_specific = memory_config.get('task_specific', True)
             self.memory_save_path = memory_save_path = memory_config.get('save_path', None)
 
             # Initialize memory bank
             self.memory_bank = memory_bank = MemoryBank(
                 encoder_name=memory_encoder,
+                distance_metric=memory_distance_metric,
                 device='cuda',
                 min_reward=memory_min_reward,
                 task_specific=memory_task_specific,
@@ -187,7 +189,7 @@ class vLLMRollout(BaseRollout):
                 # except Exception as e:
                     # LOGGER.warning(f"Failed to load memory bank from {self.memory_save_path}: {e}")
 
-            LOGGER.info(f"Memory bank initialized: {memory_k = }, {memory_min_reward = }, {memory_task_specific = }, {memory_encoder = }")
+            LOGGER.info(f'Memory bank initialized: {memory_k = }, {memory_min_reward = }, {memory_task_specific = }, {memory_encoder = }, {memory_distance_metric = }.')
         else:
             LOGGER.info("Memory bank disabled")
             self.memory_bank = None
@@ -430,6 +432,7 @@ class vLLMRollout(BaseRollout):
                 "memory_query": None,
                 "memory_retrieved": [],
                 "memory_encoder": None,
+                "memory_distance_metric": None,
                 "memory_task_specific": None,
                 "memory_k": None,
             } for _ in range(batch_size)]
@@ -442,6 +445,7 @@ class vLLMRollout(BaseRollout):
                 memory_ctx = memory_context_by_env_idx[idx]
                 if self.memory_enabled:
                     memory_ctx["memory_encoder"] = self.memory_bank.encoder_name
+                    memory_ctx['memory_distance_metric'] = self.memory_bank.distance_metric
                     memory_ctx["memory_task_specific"] = bool(self.memory_task_specific)
                     memory_ctx["memory_k"] = int(self.memory_k)
 
@@ -460,6 +464,8 @@ class vLLMRollout(BaseRollout):
                                 memory_ctx["memory_retrieved"] = [
                                     {
                                         "rank": rank,
+                                        'distance': float(dist),
+                                        'distance_metric': str(self.memory_bank.distance_metric),
                                         "l2_distance": float(dist),
                                         "item_id": int(exp.item_id),
                                         "task_name": str(exp.task_name),

@@ -19,6 +19,7 @@ set -e  # Exit on error
 # ============================================================================
 export MODEL_SIZE="3b"
 export USE_MEMORY=true  # Set to false to disable memory
+export MEMORY_DISTANCE_METRIC='l2'
 
 # Use provided checkpoint or default
 if [ -n "$1" ]; then
@@ -115,6 +116,7 @@ if [ "${USE_MEMORY}" = true ]; then
     bash ../examples/eval/sciworld_eval.sh \
         rollout.memory.enabled=true \
         rollout.memory.k=3 \
+        rollout.memory.distance_metric="${MEMORY_DISTANCE_METRIC}" \
         rollout.memory.save_path="outputs/memory_bank/sciworld_${MODEL_SIZE}" 2>&1 | tee "../logs/eval_${MODEL_SIZE}_memory_$(date +%Y%m%d_%H%M%S).log"
 else
     echo "Memory bank: DISABLED"

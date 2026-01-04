@@ -42,12 +42,14 @@ class MemoryBank:
         device: Device to run the encoder on ('cuda' or 'cpu')
         min_reward: Minimum reward threshold for storing experiences
         task_specific: If True, only retrieve from same task; if False, cross-task retrieval
+        distance_metric: Similarity metric for retrieval ('l2' or 'cosine')
     '''
 
     def __init__(
         self,
         encoder_name: str,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        distance_metric: str,
+        device: str = 'cuda',
         min_reward: float = 0.5,
         task_specific: bool = True,
     ) -> None:
@@ -55,19 +57,29 @@ class MemoryBank:
         self.device = device
         self.min_reward = min_reward
         self.task_specific = task_specific
+        assert distance_metric in {'l2', 'cosine'}, f'Unsupported {distance_metric = }. Expected "l2" or "cosine".'
+        self.distance_metric = distance_metric
 
         # Initialize encoder
-        self.encoder = SentenceTransformer(encoder_name, device=device)
-        self.embedding_dim = embedding_dim = self.encoder.get_sentence_embedding_dimension()
+        self.encoder = encoder = SentenceTransformer(encoder_name, device=device)
+        self.embedding_dim = embedding_dim = encoder.get_sentence_embedding_dimension()
 
-        # Initialize FAISS index (using L2 distance)
-        self.index = faiss.IndexFlatL2(embedding_dim)
+        # Initialize FAISS index
+        self.index = self._create_faiss_index(embedding_dim)
 
         # Store experiences
         self.experiences: list[Experience] = []
 
         # Task-specific indices for filtering
         self.task_indices: dict[str, list[int]] = {}
+
+    def _create_faiss_index(self, embedding_dim: int) -> faiss.Index:
+        if self.distance_metric == 'l2':
+            return faiss.IndexFlatL2(embedding_dim)
+        if self.distance_metric == 'cosine':
+            return faiss.IndexFlatIP(embedding_dim)
+
+        raise ValueError(f'Unsupported distance_metric: {self.distance_metric}. Expected "l2" or "cosine".')
 
     def encode(self, texts: list[str]) -> NDArray:
         '''
@@ -86,7 +98,10 @@ class MemoryBank:
                 show_progress_bar=False,
                 batch_size=32,
             )
-        return embeddings.astype('float32')
+        embeddings_float32 = embeddings.astype('float32')
+        if self.distance_metric == 'cosine':
+            faiss.normalize_L2(embeddings_float32)
+        return embeddings_float32
 
     def add(
         self,
@@ -165,9 +180,12 @@ class MemoryBank:
         k: int,
         task_name: str | None,
     ) -> tuple[list[Experience], list[float]]:
-        """Retrieve top-k experiences with FAISS L2 distances.
+        """Retrieve top-k experiences with retrieval distances.
 
-        Distances are L2 distances in embedding space (smaller means more similar).
+        Returned values depend on `distance_metric`:
+
+        - 'l2': squared L2 distances in embedding space (smaller means more similar).
+        - 'cosine': 1 - cosine similarity between L2-normalized embeddings (smaller means more similar).
 
         Args:
             query_text: Query observation text.
@@ -197,16 +215,22 @@ class MemoryBank:
             task_embeddings_list = [self.experiences[idx].obs_embedding for idx in valid_indices]
             task_embeddings_list = [e for e in task_embeddings_list if e is not None]
             task_embeddings = np.vstack(task_embeddings_list)
-            temp_index = faiss.IndexFlatL2(self.embedding_dim)
+            temp_index = self._create_faiss_index(self.embedding_dim)
             temp_index.add(task_embeddings)
 
-            distances, indices = temp_index.search(query_embedding, k)
+            scores, indices = temp_index.search(query_embedding, k)
             retrieved_indices = [valid_indices[idx] for idx in indices[0]]
-            retrieved_distances = distances[0].tolist()
+            if self.distance_metric == 'cosine':
+                retrieved_distances = (1.0 - scores[0]).tolist()
+            else:
+                retrieved_distances = scores[0].tolist()
         else:
-            distances, indices = self.index.search(query_embedding, k)
+            scores, indices = self.index.search(query_embedding, k)
             retrieved_indices = indices[0].tolist()
-            retrieved_distances = distances[0].tolist()
+            if self.distance_metric == 'cosine':
+                retrieved_distances = (1.0 - scores[0]).tolist()
+            else:
+                retrieved_distances = scores[0].tolist()
 
         return [self.experiences[idx] for idx in retrieved_indices], [float(d) for d in retrieved_distances]
 
@@ -265,6 +289,7 @@ class MemoryBank:
             'embedding_dim': self.embedding_dim,
             'min_reward': self.min_reward,
             'task_specific': self.task_specific,
+            'distance_metric': self.distance_metric,
         }
         with open(save_path_obj.with_suffix('.pkl'), 'wb') as f:
             pickle.dump(state, f)
@@ -289,11 +314,13 @@ class MemoryBank:
 
         # Create instance
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        distance_metric = state['distance_metric']
         memory_bank = cls(
             encoder_name=state['encoder_name'],
             device=device,
             min_reward=state['min_reward'],
             task_specific=state['task_specific'],
+            distance_metric=distance_metric,
         )
         embedding_dim = memory_bank.embedding_dim
         if embedding_dim is None:
@@ -319,6 +346,6 @@ class MemoryBank:
 
     def clear(self) -> None:
         '''Clear all experiences from the memory bank.'''
-        self.index = faiss.IndexFlatL2(self.embedding_dim)
+        self.index = self._create_faiss_index(self.embedding_dim)
         self.experiences = []
         self.task_indices = {}

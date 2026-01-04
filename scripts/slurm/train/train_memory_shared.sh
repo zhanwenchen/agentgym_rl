@@ -32,6 +32,7 @@ if [ "${USE_MEMORY}" = true ]; then
         actor_rollout_ref.rollout.memory.enabled=true \
         actor_rollout_ref.rollout.memory.k=3 \
         actor_rollout_ref.rollout.memory.min_reward=0.5 \
+        actor_rollout_ref.rollout.memory.distance_metric="${MEMORY_DISTANCE_METRIC}" \
         actor_rollout_ref.rollout.memory.save_path="outputs/memory_bank/sciworld_${MODEL_SIZE}" 2>&1
 else
     echo "Memory bank: DISABLED"

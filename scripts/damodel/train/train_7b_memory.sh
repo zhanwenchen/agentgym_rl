@@ -8,7 +8,11 @@ set -x
 
 export DIRPATH_PROJECT="${HOME}/workspace/agentgym_rl"
 export MODEL_SIZE="7b"
-export EXP_NAME="train_${MODEL_SIZE}_memory_$(date +%Y%m%d%H%M%S)"
+export MEMORY_ENABLED=true  # Set to false to disable memory
+export MEMORY_K=3  # Set to false to disable memory
+export MEMORY_MIN_REWARD=0.5
+export MEMORY_DISTANCE_METRIC='cosine'
+export EXP_NAME="train_${MODEL_SIZE}_memory_k${MEMORY_K}_minreward${MEMORY_MIN_REWARD}_metric${MEMORY_DISTANCE_METRIC}_$(date +%Y%m%d_%H%M%S)"
 
 source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
 
@@ -16,9 +20,6 @@ source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
 # ============================================================================
 # Configuration
 # ============================================================================
-export MEMORY_ENABLED=true  # Set to false to disable memory
-export MEMORY_K=1  # Set to false to disable memory
-export MEMORY_MIN_REWARD=0.5
 
 # /home/zhanwen/agentgym_rl/AgentGym-RL/saves/0.5b_n8/global_step_25/actor
 source "${DIRPATH_PROJECT}/scripts/damodel/train/train_shared.sh"
