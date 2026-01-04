@@ -161,39 +161,36 @@ class vLLMRollout(BaseRollout):
         self.tokenizer = tokenizer
 
         # Initialize memory bank if enabled
-        self.memory_enabled = rollout_config.get('memory', {}).get('enabled', False)
-        self.memory_bank: Optional[MemoryBank] = None
-        if self.memory_enabled:
-            memory_config = rollout_config.get('memory', {})
-            self.memory_k = memory_config.get('k', 3)
-            self.memory_min_reward = memory_config.get('min_reward', 0.5)
-            self.memory_encoder = memory_config.get('encoder', 'sentence-transformers/all-MiniLM-L6-v2')
-            self.memory_task_specific = memory_config.get('task_specific', True)
-            self.memory_save_path = memory_config.get('save_path', None)
+        memory_config = rollout_config.memory
+
+        self.memory_enabled = memory_enabled = memory_config.enabled
+        if memory_enabled:
+            self.memory_k = memory_k = memory_config.k
+            self.memory_min_reward = memory_min_reward = memory_config.get('min_reward', 0.5)
+            self.memory_encoder = memory_encoder = memory_config.get('encoder', 'sentence-transformers/all-MiniLM-L6-v2')
+            self.memory_task_specific = memory_task_specific = memory_config.get('task_specific', True)
+            self.memory_save_path = memory_save_path = memory_config.get('save_path', None)
 
             # Initialize memory bank
-            self.memory_bank = MemoryBank(
-                encoder_name=self.memory_encoder,
-                device='cuda' if torch.cuda.is_available() else 'cpu',
-                min_reward=self.memory_min_reward,
-                task_specific=self.memory_task_specific,
+            self.memory_bank = memory_bank = MemoryBank(
+                encoder_name=memory_encoder,
+                device='cuda',
+                min_reward=memory_min_reward,
+                task_specific=memory_task_specific,
             )
 
             # Load existing memory bank if path provided
-            if self.memory_save_path and os.path.exists(self.memory_save_path + '.pkl'):
-                try:
-                    self.memory_bank = MemoryBank.load(
-                        self.memory_save_path,
-                        device='cuda' if torch.cuda.is_available() else 'cpu',
-                    )
-                    LOGGER.info(f"Loaded memory bank from {self.memory_save_path} with {len(self.memory_bank)} experiences")
-                except Exception as e:
-                    LOGGER.warning(f"Failed to load memory bank from {self.memory_save_path}: {e}")
+            if memory_save_path and os.path.exists(self.memory_save_path + '.pkl'):
+                # try:
+                self.memory_bank = MemoryBank.load(memory_save_path, device='cuda')
+                LOGGER.info(f"Loaded memory bank from {memory_save_path} with {len(memory_bank)} experiences")
+                # except Exception as e:
+                    # LOGGER.warning(f"Failed to load memory bank from {self.memory_save_path}: {e}")
 
-            LOGGER.info(f"Memory bank initialized: k={self.memory_k}, min_reward={self.memory_min_reward}, "
-                       f"task_specific={self.memory_task_specific}, encoder={self.memory_encoder}")
+            LOGGER.info(f"Memory bank initialized: {memory_k = }, {memory_min_reward = }, {memory_task_specific = }, {memory_encoder = }")
         else:
             LOGGER.info("Memory bank disabled")
+            self.memory_bank = None
 
 
     @contextmanager
@@ -226,9 +223,7 @@ class vLLMRollout(BaseRollout):
                 attention_mask_list = list(attention_mask)
                 position_ids_list = list(position_ids)
                 handler = RolloutHandler(
-                    messages=[
-                        Message(role=prompt["role"], content=prompt["content"]) for prompt in raw_prompt
-                    ],
+                    messages=[Message(role=prompt["role"], content=prompt["content"]) for prompt in raw_prompt],
                     task_name=task_name_item_id_string[0],
                     item_id=int(task_name_item_id_string[-1]),
                     score=0,
@@ -430,66 +425,65 @@ class vLLMRollout(BaseRollout):
             # get generation prompt with memory retrieval
             generation_prompt_idxs = []
             not_done_idxs = []
-            memory_context_by_env_idx: list[dict[str, Any]] = [
-                {
-                    "memory_used": False,
-                    "memory_query": None,
-                    "memory_retrieved": [],
-                    "memory_encoder": None,
-                    "memory_task_specific": None,
-                    "memory_k": None,
-                }
-                for _ in range(batch_size)
-            ]
+            memory_context_by_env_idx: list[dict[str, Any]] = [{
+                "memory_used": False,
+                "memory_query": None,
+                "memory_retrieved": [],
+                "memory_encoder": None,
+                "memory_task_specific": None,
+                "memory_k": None,
+            } for _ in range(batch_size)]
             for idx, rollout_handler in enumerate(rollout_handler_ls):
-                if not rollout_handler.done:
-                    # Retrieve similar experiences from memory if enabled
-                    memory_examples = None
-                    memory_ctx = memory_context_by_env_idx[idx]
-                    if self.memory_enabled and self.memory_bank is not None:
-                        memory_ctx["memory_encoder"] = self.memory_bank.encoder_name
-                        memory_ctx["memory_task_specific"] = bool(self.memory_task_specific)
-                        memory_ctx["memory_k"] = int(self.memory_k)
+                # if not rollout_handler.done:
+                if rollout_handler.done:
+                    continue
+                # Retrieve similar experiences from memory if enabled
+                memory_examples = None
+                memory_ctx = memory_context_by_env_idx[idx]
+                if self.memory_enabled:
+                    memory_ctx["memory_encoder"] = self.memory_bank.encoder_name
+                    memory_ctx["memory_task_specific"] = bool(self.memory_task_specific)
+                    memory_ctx["memory_k"] = int(self.memory_k)
 
-                        # Get current observation (last user message)
-                        if len(rollout_handler.messages) > 0 and rollout_handler.messages[-1].role == "user":
-                            current_obs = rollout_handler.messages[-1].content
-                            memory_ctx["memory_query"] = current_obs
-                            try:
-                                retrieved_exps, retrieved_distances = self.memory_bank.retrieve_with_distances(
-                                    query_text=current_obs,
-                                    k=self.memory_k,
-                                    task_name=rollout_handler.task_name if self.memory_task_specific else None,
-                                )
-                                if len(retrieved_exps) > 0:
-                                    memory_ctx["memory_used"] = True
-                                    memory_ctx["memory_retrieved"] = [
-                                        {
-                                            "rank": rank,
-                                            "l2_distance": float(dist),
-                                            "item_id": int(exp.item_id),
-                                            "task_name": str(exp.task_name),
-                                            "reward": float(exp.reward),
-                                            "obs_text": str(exp.obs_text),
-                                            "action": str(exp.action),
-                                        }
-                                        for rank, (exp, dist) in enumerate(
-                                            zip(retrieved_exps, retrieved_distances)
-                                        )
-                                    ]
-                                    memory_examples = self.memory_bank.format_as_examples(
-                                        retrieved_exps,
-                                        self.tokenizer,
-                                        format_style="chat",
+                    # Get current observation (last user message)
+                    if len(rollout_handler.messages) > 0 and rollout_handler.messages[-1].role == "user":
+                        current_obs = rollout_handler.messages[-1].content
+                        memory_ctx["memory_query"] = current_obs
+                        try:
+                            retrieved_exps, retrieved_distances = self.memory_bank.retrieve_with_distances(
+                                query_text=current_obs,
+                                k=self.memory_k,
+                                task_name=rollout_handler.task_name if self.memory_task_specific else None,
+                            )
+                            if len(retrieved_exps) > 0:
+                                memory_ctx["memory_used"] = True
+                                memory_ctx["memory_retrieved"] = [
+                                    {
+                                        "rank": rank,
+                                        "l2_distance": float(dist),
+                                        "item_id": int(exp.item_id),
+                                        "task_name": str(exp.task_name),
+                                        "reward": float(exp.reward),
+                                        "obs_text": str(exp.obs_text),
+                                        "action": str(exp.action),
+                                    }
+                                    for rank, (exp, dist) in enumerate(
+                                        zip(retrieved_exps, retrieved_distances)
                                     )
-                            except Exception as e:
-                                LOGGER.warning(f"Memory retrieval failed: {e}")
+                                ]
+                                memory_examples = self.memory_bank.format_as_examples(
+                                    retrieved_exps,
+                                    self.tokenizer,
+                                    format_style="chat",
+                                )
+                        except Exception as e:
+                            LOGGER.warning(f"Memory retrieval failed: {e}")
 
-                    # Generate prompt with memory examples
-                    generation_prompt_idxs.append(
-                        rollout_handler.get_generation_prompt(self.tokenizer, memory_examples=memory_examples)
-                    )
-                    not_done_idxs.append(idx)
+                # Generate prompt with memory examples
+                generation_prompt_idxs.append(
+                    rollout_handler.get_generation_prompt(self.tokenizer, memory_examples=memory_examples)
+                )
+                not_done_idxs.append(idx)
 
             rollout_bar.set_description(f"Rounds {rounds + 1}/{max_rounds} | Active agents per gpu: {len(not_done_idxs)}")
             # users can customize different sampling_params at different run
@@ -666,20 +660,18 @@ class vLLMRollout(BaseRollout):
 
         # Save memory bank if enabled
         if self.memory_enabled and self.memory_bank is not None and self.memory_save_path:
-            try:
-                self.memory_bank.save(self.memory_save_path)
-                LOGGER.info(f"Saved memory bank to {self.memory_save_path} with {len(self.memory_bank)} experiences")
-            except Exception as e:
-                LOGGER.warning(f"Failed to save memory bank: {e}")
+            self.memory_bank.save(self.memory_save_path)
+            LOGGER.info(f"Saved memory bank to {self.memory_save_path} with {len(self.memory_bank)} experiences")
 
         LOGGER.info(f'vLLMRollout.generate_sequences: Completed rollout for all agents.')
         # breakpoint()
 
         # Build non-tensor batch for variable-length step metrics
-        non_tensor_batch = {
-            'step_rewards': np.array(step_rewards_list, dtype=object),
-            'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
-            'score_change_record': np.array(score_change_record_list, dtype=object),
-        }
+        # non_tensor_batch = {
+        #     'step_rewards': np.array(step_rewards_list, dtype=object),
+        #     'step_valid_actions': np.array(step_valid_actions_list, dtype=object),
+        #     'score_change_record': np.array(score_change_record_list, dtype=object),
+        # }
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        # return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch)

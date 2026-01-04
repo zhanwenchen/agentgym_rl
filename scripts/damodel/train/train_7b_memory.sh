@@ -17,7 +17,7 @@ source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
 # Configuration
 # ============================================================================
 export MEMORY_ENABLED=true  # Set to false to disable memory
-export MEMORY_K=3  # Set to false to disable memory
+export MEMORY_K=1  # Set to false to disable memory
 export MEMORY_MIN_REWARD=0.5
 
 # /home/zhanwen/agentgym_rl/AgentGym-RL/saves/0.5b_n8/global_step_25/actor

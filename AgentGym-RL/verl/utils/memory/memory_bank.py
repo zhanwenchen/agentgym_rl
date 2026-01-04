@@ -297,17 +297,12 @@ class MemoryBank:
         )
         embedding_dim = memory_bank.embedding_dim
         if embedding_dim is None:
-            raise ValueError(
-                f"Encoder '{memory_bank.encoder_name}' did not report an embedding dimension"
-            )
+            raise ValueError(f"Encoder '{memory_bank.encoder_name}' did not report an embedding dimension")
 
         embedding_dim_int = cast(int, embedding_dim)
         state_embedding_dim = int(state['embedding_dim'])
         if embedding_dim_int != state_embedding_dim:
-            raise ValueError(
-                f"Loaded embedding_dim={state['embedding_dim']} but encoder '{memory_bank.encoder_name}' "
-                f"produced embedding_dim={memory_bank.embedding_dim}"
-            )
+            raise ValueError(f"Loaded embedding_dim={state['embedding_dim']} but encoder '{memory_bank.encoder_name}' produced embedding_dim={memory_bank.embedding_dim}.")
 
         # Load FAISS index
         memory_bank.index = faiss.read_index(str(load_path_obj.with_suffix('.faiss')))
