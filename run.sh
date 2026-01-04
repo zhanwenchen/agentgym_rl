@@ -5,12 +5,13 @@
 
 # System
 sudo apt update
-sudo apt full-upgrade
+sudo apt full-upgrade -y
 sudo apt install -y screen openjdk-17-jdk iproute2 rsync tk tcllib # type 2 when asked about sshd config.
 
 # CUDA
-export DIRNAME_MOUNT="d524mtfhri0c73avm3ig"
-cd "${HOME}/workspace/${DIRNAME_MOUNT}/downloads/cuda"
+# export DIRNAME_MOUNT="d524mtfhri0c73avm3ig"
+# cd "${HOME}/workspace/${DIRNAME_MOUNT}/downloads/cuda"
+cd "${HOME}/shared-storage/downloads/cuda"
 
 # 1. compilers
 sudo apt install -y ./cuda-cuobjdump-12-4_12.4.99-1_amd64.deb ./cuda-cuxxfilt-12-4_12.4.99-1_amd64.deb ./cuda-toolkit-config-common_12.4.99-1_all.deb ./cuda-toolkit-12-config-common_12.4.99-1_all.deb ./cuda-toolkit-12-4-config-common_12.4.99-1_all.deb ./cuda-cudart-12-4_12.4.99-1_amd64.deb ./cuda-cccl-12-4_12.4.99-1_amd64.deb ./cuda-driver-dev-12-4_12.4.99-1_amd64.deb ./cuda-cudart-dev-12-4_12.4.99-1_amd64.deb ./cuda-nvvm-12-4_12.4.99-1_amd64.deb ./cuda-crt-12-4_12.4.99-1_amd64.deb ./cuda-nvcc-12-4_12.4.99-1_amd64.deb ./cuda-nvprune-12-4_12.4.99-1_amd64.deb ./cuda-compiler-12-4_12.4.0-1_amd64.deb
@@ -26,9 +27,12 @@ sudo apt install -y ./cuda-documentation-12-4_12.4.99-1_amd64.deb
 sudo apt install -y ./cuda-toolkit-12-4_12.4.0-1_amd64.deb
 
 
+
 # og:
-ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/timezone
+ll /var/lib/dpkg/info/tzdata.postinst # Comment out 34-36
+sudo apt install  tzdata libtcl8.6:amd64 tk8.6 tcl8.6 libtk8.6:amd64 tcl tk tcllib
+# ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+# ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/timezone
 
 
 # Globus Personal Connect requires non-root user account
@@ -47,7 +51,7 @@ sudo su - zhanwen # need to download as
 wget https://downloads.globus.org/globus-connect-personal/linux/stable/globusconnectpersonal-latest.tgz
 tar xzf globusconnectpersonal-latest.tgz
 cd globusconnectpersonal-3.2.8/
-# ./globusconnectpersonal
+./globusconnectpersonal -setup
 ./globusconnectpersonal -start &
 echo '/root,0,1' >> ${HOME}/.globusonline/lta/config-paths
 sudo chmod o+x,o+r /root
@@ -60,9 +64,10 @@ exit
 # sudo -H -u zhanwen bash -c './globusconnectpersonal -start &'
 
 ssh-keygen
-cat ~/.ssh/id_rsa.pub  # add to github
+cat ~/.ssh/id_rsa.pub  # add to githube
 git clone git@github.com:zhanwenchen/agentgym_rl.git
-curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+# curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+cd "${HOME}/shared-storage/downloads"
 bash Miniforge3-Linux-x86_64.sh
 # echo "Preparing environment for agentgym-rl..."
 
@@ -70,8 +75,9 @@ bash Miniforge3-Linux-x86_64.sh
 conda create -n agog "python<3.11" -y
 conda activate agog
 
-export DIRNAME_MOUNT="d524mtfhri0c73avm3ig"
-cd "${HOME}/workspace/${DIRNAME_MOUNT}/downloads"
+# export DIRNAME_MOUNT="d524mtfhri0c73avm3ig"
+# cd "${HOME}/workspace/${DIRNAME_MOUNT}/downloads"
+cd "${HOME}/shared-storage/downloads"
 pip install torch-2.4.0+cu124-cp310-cp310-linux_x86_64.whl flash_attn-2.7.3+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl --no-build-isolation
 # pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu124
 # pip install torch-2.4.0+cu124-cp310-cp310-linux_x86_64.whl --no-build-isolation
