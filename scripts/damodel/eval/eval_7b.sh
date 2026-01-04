@@ -21,6 +21,7 @@ export MEMORY_K=3  # Set to false to disable memory
 export MEMORY_MIN_REWARD=0.5
 
 export DIRNAME_CHECKPOINT="${MODEL_SIZE}_n8_riv"
+# ln -sf "${HOME}/shared-storage/agentgym_rl_AgentGym-RL_saves/${DIRNAME_CHECKPOINT}" "AgentGym-RL/saves/" && ll "AgentGym-RL/saves/${DIRNAME_CHECKPOINT}"
 export STEPNUM_CHECKPOINT=100
 
 export ckpt_path="${DIRPATH_PROJECT}/AgentGym-RL/saves/${DIRNAME_CHECKPOINT}/global_step_${STEPNUM_CHECKPOINT}/actor"

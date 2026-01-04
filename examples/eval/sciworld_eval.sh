@@ -52,6 +52,7 @@ HYDRA_FULL_ERROR=1 "${PYTHON_BIN}" -m verl.agent_trainer.main_generation  \
     rollout.memory.enabled="${MEMORY_ENABLED}" \
     rollout.memory.k="${MEMORY_K}" \
     rollout.memory.min_reward="${MEMORY_MIN_REWARD}" \
+    rollout.memory.distance_metric="${MEMORY_DISTANCE_METRIC}" \
     rollout.memory.save_path="${ckpt_path}/memory_bank" \
     rollout.rollout_log_dir="${ckpt_path}/executor_logs/$(date +%Y%m%d%H%M%S)" \
     "$@"

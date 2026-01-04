@@ -17,9 +17,15 @@ source "${DIRPATH_PROJECT}/scripts/damodel/logging.sh"
 # Configuration
 # ============================================================================
 export MEMORY_ENABLED=true  # Set to false to disable memory
-export MEMORY_K=3  # Set to false to disable memory
+export MEMORY_K=5  # Set to false to disable memory
 export MEMORY_MIN_REWARD=0.5
+export MEMORY_DISTANCE_METRIC='l2'
+export STEPNUM_CHECKPOINT=125
 
-export ckpt_path="${DIRPATH_PROJECT}/AgentGym-RL/saves/train_${MODEL_SIZE}_memory_20251220_114915/global_step_150/actor"
-# /home/zhanwen/agentgym_rl/AgentGym-RL/saves/0.5b_n8/global_step_25/actor
+export DIRNAME_CHECKPOINT="train_7b_memory_20260103134836_20260103_134841"
+# ln -sf "${HOME}/shared-storage/agentgym_rl_AgentGym-RL_saves/${DIRNAME_CHECKPOINT}" "AgentGym-RL/saves/" && ll "AgentGym-RL/saves/${DIRNAME_CHECKPOINT}"
+
+
+export ckpt_path="${DIRPATH_PROJECT}/AgentGym-RL/saves/${DIRNAME_CHECKPOINT}/global_step_${STEPNUM_CHECKPOINT}/actor"
 source "${DIRPATH_PROJECT}/scripts/damodel/eval/eval_shared.sh"
+echo "eval_7b_memory.sh: evaluated ckpt_path=${ckpt_path} with MEMORY_ENABLED=${MEMORY_ENABLED}, MEMORY_K=${MEMORY_K}, MEMORY_MIN_REWARD=${MEMORY_MIN_REWARD}, MEMORY_DISTANCE_METRIC=${MEMORY_DISTANCE_METRIC}."
